@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RosaIQ Air Quality Monitor</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1>RosaIQ Air Quality Monitor</h1>
+                <div class="header-info">
+                    <span class="status-indicator" id="serverStatus">
+                        <span class="status-dot"></span> Server Online
+                    </span>
+                    <span class="last-update">Last updated: <span id="lastUpdate">-</span></span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Summary Cards -->
+        <div class="summary-section">
+            <div class="card summary-card">
+                <div class="card-icon">Devices</div>
+                <div class="card-content">
+                    <div class="card-value" id="totalDevices">0</div>
+                    <div class="card-label">Total Devices</div>
+                </div>
+            </div>
+            <div class="card summary-card">
+                <div class="card-icon">Active</div>
+                <div class="card-content">
+                    <div class="card-value" id="activeDevices">0</div>
+                    <div class="card-label">Active Devices</div>
+                </div>
+            </div>
+            <div class="card summary-card">
+                <div class="card-icon">CO₂</div>
+                <div class="card-content">
+                    <div class="card-value" id="avgCO2">-</div>
+                    <div class="card-label">Avg CO₂ (ppm)</div>
+                </div>
+            </div>
+            <div class="card summary-card">
+                <div class="card-icon">PM2.5</div>
+                <div class="card-content">
+                    <div class="card-value" id="avgPM25">-</div>
+                    <div class="card-label">Avg PM2.5 (µg/m³)</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Devices Section -->
+        <div class="devices-section">
+            <div class="section-header">
+                <h2>Connected Devices</h2>
+                <button class="btn btn-primary" onclick="refreshData()">Refresh</button>
+            </div>
+
+            <div id="devicesContainer" class="devices-container">
+                <!-- Devices will be loaded here -->
+                <div class="loading">Loading devices...</div>
+            </div>
+        </div>
+
+        <!-- Device Detail Modal -->
+        <div id="deviceModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 id="modalDeviceName">Device Details</h2>
+                    <button class="modal-close" onclick="closeModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="tabs">
+                        <button class="tab-btn active" onclick="switchTab('measurements')">Measurements</button>
+                        <button class="tab-btn" onclick="switchTab('charts')">Charts</button>
+                        <button class="tab-btn" onclick="switchTab('config')">Configuration</button>
+                        <button class="tab-btn" onclick="switchTab('info')">Info</button>
+                    </div>
+
+                    <!-- Measurements Tab -->
+                    <div id="measurementsTab" class="tab-content active">
+                        <div class="measurements-grid" id="measurementsGrid">
+                            <!-- Measurements will be loaded here -->
+                        </div>
+                    </div>
+
+                    <!-- Charts Tab -->
+                    <div id="chartsTab" class="tab-content">
+                        <div class="chart-container">
+                            <canvas id="co2Chart"></canvas>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="pm25Chart"></canvas>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="tempHumChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Configuration Tab -->
+                    <div id="configTab" class="tab-content">
+                        <form id="configForm" class="config-form">
+                            <!-- Config form will be generated here -->
+                        </form>
+                        <button class="btn btn-primary" onclick="saveConfig()">Save Configuration</button>
+                    </div>
+
+                    <!-- Info Tab -->
+                    <div id="infoTab" class="tab-content">
+                        <div id="deviceInfo" class="device-info">
+                            <!-- Device info will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>&copy; 2025 RosaIQ. Air Quality Monitoring System.</p>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

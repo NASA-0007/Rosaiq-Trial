@@ -1,0 +1,32 @@
+{
+  "name": "rosaiq-airgradient-server",
+  "version": "1.0.0",
+  "description": "RosaIQ Air Quality Monitoring Server - Custom server for AirGradient devices",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "init-db": "node database.js"
+  },
+  "keywords": [
+    "air-quality",
+    "airgradient",
+    "rosaiq",
+    "monitoring",
+    "sensors"
+  ],
+  "author": "RosaIQ",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "better-sqlite3": "^9.2.2",
+    "cors": "^2.8.5",
+    "body-parser": "^1.20.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
