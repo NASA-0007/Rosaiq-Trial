@@ -440,10 +440,13 @@ app.get('/config', (req, res) => {
   console.log('[CONFIG] IP:', req.ip);
   
   // Get server hostname from request
-  const protocol = req.protocol;
+  // Use x-forwarded-proto header if available (for proxies like Render)
+  const protocol = req.get('x-forwarded-proto') || req.protocol || 'https';
   const host = req.get('host');
   const httpDomain = `${protocol}://${host}`;
   
+  console.log('[CONFIG] Protocol:', protocol);
+  console.log('[CONFIG] Host:', host);
   console.log('[CONFIG] Responding with httpDomain:', httpDomain);
   
   // Return AirGradient-compatible configuration
