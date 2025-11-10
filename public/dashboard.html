@@ -1,426 +1,470 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>My Dashboard - RosaIQ</title>
-  <link rel="stylesheet" href="styles.css">
-  <style>
-    .logout-btn {
-      position: absolute;
-      top: 20px;
-      right: 20px;
-      padding: 10px 20px;
-      background: #dc3545;
-      color: white;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
-      font-size: 14px;
-    }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RosaIQ Air Quality Monitor - Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        .logout-btn {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #fff;
+            color: #667eea;
+            border: 2px solid #667eea;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 600;
+            z-index: 1000;
+            transition: all 0.3s;
+        }
 
-    .logout-btn:hover {
-      background: #c82333;
-    }
+        .logout-btn:hover {
+            background: #667eea;
+            color: white;
+        }
 
-    .welcome-user {
-      text-align: center;
-      margin: 20px 0;
-      font-size: 18px;
-      color: #666;
-    }
+        .claim-device-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 600;
+            margin-left: 10px;
+            transition: transform 0.2s;
+        }
 
-    .device-card {
-      position: relative;
-    }
+        .claim-device-btn:hover {
+            transform: translateY(-2px);
+        }
 
-    .edit-name-btn {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      padding: 5px 10px;
-      background: #007bff;
-      color: white;
-      border: none;
-      border-radius: 3px;
-      cursor: pointer;
-      font-size: 12px;
-    }
+        .welcome-text {
+            font-size: 14px;
+            opacity: 0.8;
+            margin-bottom: 10px;
+        }
 
-    .edit-name-btn:hover {
-      background: #0056b3;
-    }
-
-    .modal {
-      display: none;
-      position: fixed;
-      z-index: 1000;
-      left: 0;
-      top: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.5);
-    }
-
-    .modal-content {
-      background: white;
-      margin: 15% auto;
-      padding: 30px;
-      border-radius: 10px;
-      width: 90%;
-      max-width: 400px;
-    }
-
-    .modal-header {
-      margin-bottom: 20px;
-    }
-
-    .modal-header h2 {
-      margin: 0;
-      color: #333;
-    }
-
-    .modal-input {
-      width: 100%;
-      padding: 10px;
-      margin-bottom: 15px;
-      border: 2px solid #ddd;
-      border-radius: 5px;
-      font-size: 14px;
-    }
-
-    .modal-buttons {
-      display: flex;
-      gap: 10px;
-      justify-content: flex-end;
-    }
-
-    .modal-btn {
-      padding: 10px 20px;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
-      font-size: 14px;
-    }
-
-    .modal-btn-primary {
-      background: #007bff;
-      color: white;
-    }
-
-    .modal-btn-secondary {
-      background: #6c757d;
-      color: white;
-    }
-
-    .no-devices {
-      text-align: center;
-      padding: 60px 20px;
-      color: #999;
-    }
-
-    .no-devices h2 {
-      margin-bottom: 10px;
-      color: #666;
-    }
-  </style>
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+    </style>
 </head>
 <body>
-  <button class="logout-btn" onclick="logout()">Logout</button>
+    <button class="logout-btn" onclick="logout()">Logout</button>
 
-  <div class="container">
-    <header class="header">
-      <h1>🌟 RosaIQ Air Quality Monitor</h1>
-      <p class="welcome-user" id="welcomeText">Loading...</p>
-      <button class="btn btn-primary" onclick="openClaimModal()" style="margin-top: 10px;">+ Claim Device</button>
-    </header>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1>RosaIQ Air Quality Monitor</h1>
+                <div class="welcome-text" id="welcomeText">Loading...</div>
+                <div class="header-info">
+                    <span class="status-indicator" id="serverStatus">
+                        <span class="status-dot"></span> Server Online
+                    </span>
+                    <span class="last-update">Last updated: <span id="lastUpdate">-</span></span>
+                    <button class="claim-device-btn" onclick="openClaimModal()">+ Claim Device</button>
+                </div>
+            </div>
+        </header>
 
-    <div class="dashboard">
-      <div class="summary">
-        <div class="summary-card">
-          <div class="summary-value" id="totalDevices">-</div>
-          <div class="summary-label">My Devices</div>
+        <!-- Summary Cards -->
+        <div class="summary-section">
+            <div class="card summary-card">
+                <div class="card-icon">📱</div>
+                <div class="card-content">
+                    <div class="card-value" id="totalDevices">0</div>
+                    <div class="card-label">My Devices</div>
+                </div>
+            </div>
+            <div class="card summary-card">
+                <div class="card-icon">✅</div>
+                <div class="card-content">
+                    <div class="card-value" id="activeDevices">0</div>
+                    <div class="card-label">Online</div>
+                </div>
+            </div>
+            <div class="card summary-card">
+                <div class="card-icon">💨</div>
+                <div class="card-content">
+                    <div class="card-value" id="avgCO2">-</div>
+                    <div class="card-label">Avg CO₂ (ppm)</div>
+                </div>
+            </div>
+            <div class="card summary-card">
+                <div class="card-icon">🌫️</div>
+                <div class="card-content">
+                    <div class="card-value" id="avgPM25">-</div>
+                    <div class="card-label">Avg PM2.5 (µg/m³)</div>
+                </div>
+            </div>
         </div>
-        <div class="summary-card">
-          <div class="summary-value" id="activeDevices">-</div>
-          <div class="summary-label">Active Now</div>
-        </div>
-        <div class="summary-card">
-          <div class="summary-value" id="avgCO2">- ppm</div>
-          <div class="summary-label">Avg CO₂</div>
-        </div>
-        <div class="summary-card">
-          <div class="summary-value" id="avgPM25">- µg/m³</div>
-          <div class="summary-label">Avg PM2.5</div>
-        </div>
-      </div>
 
-      <div id="devicesContainer" class="devices-grid">
-        <!-- Devices will be loaded here -->
-      </div>
+        <!-- Devices Section -->
+        <div class="devices-section">
+            <div class="section-header">
+                <h2>My Devices</h2>
+                <button class="btn btn-primary" onclick="refreshData()">Refresh</button>
+            </div>
 
-      <div id="noDevices" class="no-devices" style="display: none;">
-        <h2>No Devices Assigned</h2>
-        <p>Please contact your administrator to assign devices to your account.</p>
-      </div>
+            <div id="devicesContainer" class="devices-container">
+                <div class="loading">Loading devices...</div>
+            </div>
+        </div>
+
+        <!-- Device Detail Modal -->
+        <div id="deviceModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 id="modalDeviceName">Device Details</h2>
+                    <button class="modal-close" onclick="closeModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="tabs">
+                        <button class="tab-btn active" onclick="switchTab('measurements')">Measurements</button>
+                        <button class="tab-btn" onclick="switchTab('charts')">Charts</button>
+                        <button class="tab-btn" onclick="switchTab('config')">Configuration</button>
+                        <button class="tab-btn" onclick="switchTab('info')">Info</button>
+                    </div>
+
+                    <!-- Measurements Tab -->
+                    <div id="measurementsTab" class="tab-content active">
+                        <div class="measurements-grid" id="measurementsGrid"></div>
+                    </div>
+
+                    <!-- Charts Tab -->
+                    <div id="chartsTab" class="tab-content">
+                        <div class="chart-container">
+                            <canvas id="co2Chart"></canvas>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="pm25Chart"></canvas>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="tempChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Configuration Tab -->
+                    <div id="configTab" class="tab-content">
+                        <div class="config-form">
+                            <div class="form-group">
+                                <label for="deviceName">Device Name</label>
+                                <input type="text" id="deviceName" class="form-control">
+                            </div>
+                            <div class="form-group">
+                                <label for="deviceLocation">Location</label>
+                                <input type="text" id="deviceLocation" class="form-control">
+                            </div>
+                            <div class="form-group">
+                                <label for="ledMode">LED Mode</label>
+                                <select id="ledMode" class="form-control">
+                                    <option value="off">Off</option>
+                                    <option value="co2">Show CO₂</option>
+                                    <option value="pm">Show PM</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="displayMode">Display Mode</label>
+                                <select id="displayMode" class="form-control">
+                                    <option value="default">Default</option>
+                                    <option value="pm">PM Only</option>
+                                    <option value="co2">CO₂ Only</option>
+                                </select>
+                            </div>
+                            <button class="btn btn-primary" onclick="saveDeviceConfig()">Save Configuration</button>
+                        </div>
+                    </div>
+
+                    <!-- Info Tab -->
+                    <div id="infoTab" class="tab-content">
+                        <div class="device-info" id="deviceInfoContent"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Claim Device Modal -->
+        <div id="claimModal" class="modal">
+            <div class="modal-content" style="max-width: 500px;">
+                <div class="modal-header">
+                    <h2>Claim Your Device</h2>
+                    <button class="modal-close" onclick="closeClaimModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p style="color: #666; margin-bottom: 20px;">
+                        Enter the serial number from your AirGradient device to add it to your dashboard.
+                    </p>
+                    <div class="form-group">
+                        <label for="deviceSerialNumber">Device Serial Number</label>
+                        <input type="text" id="deviceSerialNumber" class="form-control" placeholder="e.g., 84fce612eabc">
+                    </div>
+                    <div style="display: flex; gap: 10px; margin-top: 20px;">
+                        <button class="btn btn-secondary" onclick="closeClaimModal()" style="flex: 1;">Cancel</button>
+                        <button class="btn btn-primary" onclick="claimDevice()" style="flex: 1;">Claim Device</button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
-  </div>
 
-  <!-- Rename Modal -->
-  <div id="renameModal" class="modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2>Rename Device</h2>
-      </div>
-      <input type="text" id="newDeviceName" class="modal-input" placeholder="Enter new device name">
-      <div class="modal-buttons">
-        <button class="modal-btn modal-btn-secondary" onclick="closeRenameModal()">Cancel</button>
-        <button class="modal-btn modal-btn-primary" onclick="saveDeviceName()">Save</button>
-      </div>
-    </div>
-  </div>
+    <script src="app.js"></script>
+    <script>
+        // Global state
+        let currentUser = null;
+        let devices = [];
+        let selectedDeviceId = null;
+        let charts = {};
 
-  <!-- Claim Device Modal -->
-  <div id="claimModal" class="modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2>Claim Your Device</h2>
-        <p style="color: #666; font-size: 14px; margin-top: 10px;">
-          Enter the serial number from your AirGradient device to add it to your dashboard.
-        </p>
-      </div>
-      <input type="text" id="deviceSerialNumber" class="modal-input" placeholder="Enter device serial number (e.g., 12345abc)">
-      <div class="modal-buttons">
-        <button class="modal-btn modal-btn-secondary" onclick="closeClaimModal()">Cancel</button>
-        <button class="modal-btn modal-btn-primary" onclick="claimDevice()">Claim Device</button>
-      </div>
-    </div>
-  </div>
+        // Authentication check
+        async function checkAuth() {
+            try {
+                const response = await fetch('/api/auth/session', { credentials: 'include' });
+                const data = await response.json();
+                
+                if (!data.authenticated) {
+                    window.location.href = '/login.html';
+                    return;
+                }
 
-  <script src="app.js"></script>
-  <script>
-    let currentUser = null;
-    let currentEditDevice = null;
+                currentUser = data.user;
+                document.getElementById('welcomeText').textContent = `Welcome, ${currentUser.username}!`;
+                
+                // Redirect admin to admin panel
+                if (currentUser.role === 'admin') {
+                    window.location.href = '/admin/';
+                    return;
+                }
+                
+                loadDashboard();
+            } catch (error) {
+                console.error('Auth check failed:', error);
+                window.location.href = '/login.html';
+            }
+        }
 
-    // Check authentication
-    async function checkAuth() {
-      try {
-        const response = await fetch('/api/auth/session', { credentials: 'include' });
-        const data = await response.json();
+        // Logout
+        async function logout() {
+            try {
+                await fetch('/api/auth/logout', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                window.location.href = '/login.html';
+            } catch (error) {
+                console.error('Logout failed:', error);
+            }
+        }
+
+        // Load dashboard data
+        async function loadDashboard() {
+            try {
+                await Promise.all([
+                    loadSummary(),
+                    loadDevices()
+                ]);
+                updateLastUpdateTime();
+            } catch (error) {
+                console.error('Error loading dashboard:', error);
+            }
+        }
+
+        // Load summary
+        async function loadSummary() {
+            try {
+                const response = await fetch('/api/devices', { credentials: 'include' });
+                const devices = await response.json();
+                
+                const activeDevices = devices.filter(d => isDeviceOnline(d.last_seen));
+                const co2Values = devices.map(d => d.latestMeasurement?.rco2).filter(v => v);
+                const pm25Values = devices.map(d => d.latestMeasurement?.pm02).filter(v => v);
+                
+                document.getElementById('totalDevices').textContent = devices.length;
+                document.getElementById('activeDevices').textContent = activeDevices.length;
+                document.getElementById('avgCO2').textContent = co2Values.length ? 
+                    Math.round(co2Values.reduce((a, b) => a + b, 0) / co2Values.length) : '-';
+                document.getElementById('avgPM25').textContent = pm25Values.length ? 
+                    Math.round(pm25Values.reduce((a, b) => a + b, 0) / pm25Values.length) : '-';
+            } catch (error) {
+                console.error('Error loading summary:', error);
+            }
+        }
+
+        // Load devices - user sees only their devices
+        async function loadDevices() {
+            try {
+                const response = await fetch('/api/devices', { credentials: 'include' });
+                devices = await response.json();
+                renderDevices();
+            } catch (error) {
+                console.error('Error loading devices:', error);
+                document.getElementById('devicesContainer').innerHTML = 
+                    '<div class="error">Error loading devices</div>';
+            }
+        }
+
+        // Render devices
+        function renderDevices() {
+            const container = document.getElementById('devicesContainer');
+
+            if (devices.length === 0) {
+                container.innerHTML = `
+                    <div class="loading">
+                        No devices yet. Click "+ Claim Device" to add your first device!
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = devices.map(device => {
+                const isOnline = isDeviceOnline(device.last_seen);
+                const m = device.latestMeasurement || {};
+                const displayName = device.custom_name || device.device_id;
+
+                return `
+                    <div class="device-card ${isOnline ? '' : 'offline'}" onclick="openDeviceModal('${device.device_id}')">
+                        <div class="device-header">
+                            <div class="device-title">
+                                <h3>${displayName}</h3>
+                                <div class="device-id">${device.device_id}</div>
+                            </div>
+                            <span class="device-status ${isOnline ? 'online' : 'offline'}">
+                                ${isOnline ? '🟢 Online' : '🔴 Offline'}
+                            </span>
+                        </div>
+
+                        <div class="device-metrics">
+                            <div class="metric ${getCO2Class(m.rco2)}">
+                                <div class="metric-label">CO₂</div>
+                                <div class="metric-value">${m.rco2 || '-'} <span>ppm</span></div>
+                            </div>
+                            <div class="metric ${getPM25Class(m.pm02)}">
+                                <div class="metric-label">PM2.5</div>
+                                <div class="metric-value">${m.pm02 || '-'} <span>µg/m³</span></div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-label">Temp</div>
+                                <div class="metric-value">${m.atmp ? m.atmp.toFixed(1) : '-'} <span>°C</span></div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-label">Humidity</div>
+                                <div class="metric-value">${m.rhum || '-'} <span>%</span></div>
+                            </div>
+                        </div>
+
+                        <div class="text-muted text-center mt-2" style="font-size: 0.85rem;">
+                            Last seen: ${formatTimestamp(device.last_seen)}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Claim Device Modal
+        function openClaimModal() {
+            document.getElementById('deviceSerialNumber').value = '';
+            document.getElementById('claimModal').classList.add('active');
+        }
+
+        function closeClaimModal() {
+            document.getElementById('claimModal').classList.remove('active');
+        }
+
+        async function claimDevice() {
+            const serialNumber = document.getElementById('deviceSerialNumber').value.trim();
+            
+            if (!serialNumber) {
+                alert('Please enter a device serial number');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/devices/claim', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ serialNumber })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    alert(`Device "${serialNumber}" successfully claimed!`);
+                    closeClaimModal();
+                    loadDashboard();
+                } else {
+                    alert('Failed to claim device: ' + result.error);
+                }
+            } catch (error) {
+                console.error('Claim failed:', error);
+                alert('Failed to claim device. Please try again.');
+            }
+        }
+
+        // Utility functions
+        function isDeviceOnline(lastSeen) {
+            const diff = Date.now() - new Date(lastSeen).getTime();
+            return diff < 10 * 60 * 1000; // 10 minutes
+        }
+
+        function getCO2Class(co2) {
+            if (!co2) return '';
+            if (co2 < 800) return 'good';
+            if (co2 < 1200) return 'moderate';
+            return 'poor';
+        }
+
+        function getPM25Class(pm25) {
+            if (!pm25) return '';
+            if (pm25 < 12) return 'good';
+            if (pm25 < 35) return 'moderate';
+            return 'poor';
+        }
+
+        function formatTimestamp(timestamp) {
+            const date = new Date(timestamp);
+            const now = new Date();
+            const diff = now - date;
+            
+            if (diff < 60000) return 'Just now';
+            if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+            if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+            return date.toLocaleString();
+        }
+
+        function updateLastUpdateTime() {
+            document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+        }
+
+        function refreshData() {
+            loadDashboard();
+        }
+
+        // Click outside modal to close
+        window.onclick = function(event) {
+            const claimModal = document.getElementById('claimModal');
+            const deviceModal = document.getElementById('deviceModal');
+            
+            if (event.target === claimModal) {
+                closeClaimModal();
+            }
+            if (event.target === deviceModal) {
+                closeModal();
+            }
+        }
+
+        // Initialize
+        checkAuth();
         
-        if (!data.authenticated) {
-          window.location.href = '/login.html';
-          return;
-        }
-
-        currentUser = data.user;
-        document.getElementById('welcomeText').textContent = `Welcome, ${currentUser.username}!`;
-        
-        // Redirect admin to admin panel
-        if (currentUser.role === 'admin') {
-          window.location.href = '/admin/';
-        }
-        
-        loadDashboard();
-      } catch (error) {
-        console.error('Auth check failed:', error);
-        window.location.href = '/login.html';
-      }
-    }
-
-    async function logout() {
-      try {
-        await fetch('/api/auth/logout', {
-          method: 'POST',
-          credentials: 'include'
-        });
-        window.location.href = '/login.html';
-      } catch (error) {
-        console.error('Logout failed:', error);
-      }
-    }
-
-    async function loadDashboard() {
-      try {
-        const [summaryRes, devicesRes] = await Promise.all([
-          fetch('/api/dashboard/summary', { credentials: 'include' }),
-          fetch('/api/devices', { credentials: 'include' })
-        ]);
-
-        const summary = await summaryRes.json();
-        const devices = await devicesRes.json();
-
-        // Update summary
-        document.getElementById('totalDevices').textContent = summary.totalDevices;
-        document.getElementById('activeDevices').textContent = summary.activeDevices;
-        document.getElementById('avgCO2').textContent = summary.averages.co2 + ' ppm';
-        document.getElementById('avgPM25').textContent = summary.averages.pm25 + ' µg/m³';
-
-        // Display devices
-        const container = document.getElementById('devicesContainer');
-        const noDevices = document.getElementById('noDevices');
-
-        if (devices.length === 0) {
-          container.style.display = 'none';
-          noDevices.style.display = 'block';
-        } else {
-          container.style.display = 'grid';
-          noDevices.style.display = 'none';
-          container.innerHTML = devices.map(device => createDeviceCard(device)).join('');
-        }
-      } catch (error) {
-        console.error('Failed to load dashboard:', error);
-      }
-    }
-
-    function createDeviceCard(device) {
-      const data = device.latestMeasurement || {};
-      const displayName = device.custom_name || device.serial_number;
-      
-      return `
-        <div class="device-card">
-          <button class="edit-name-btn" onclick="openRenameModal('${device.device_id}', '${displayName}')">
-            ✏️ Rename
-          </button>
-          <div class="device-header">
-            <h2>${displayName}</h2>
-            <span class="device-status ${isDeviceActive(device.last_seen) ? 'online' : 'offline'}">
-              ${isDeviceActive(device.last_seen) ? '● Online' : '● Offline'}
-            </span>
-          </div>
-          <div class="device-metrics">
-            <div class="metric">
-              <div class="metric-value">${data.rco2 || '-'} <span>ppm</span></div>
-              <div class="metric-label">CO₂</div>
-            </div>
-            <div class="metric">
-              <div class="metric-value">${data.pm02 || '-'} <span>µg/m³</span></div>
-              <div class="metric-label">PM2.5</div>
-            </div>
-            <div class="metric">
-              <div class="metric-value">${data.atmp || '-'} <span>°C</span></div>
-              <div class="metric-label">Temperature</div>
-            </div>
-            <div class="metric">
-              <div class="metric-value">${data.rhum || '-'} <span>%</span></div>
-              <div class="metric-label">Humidity</div>
-            </div>
-          </div>
-          <div class="device-footer">
-            <small>Last updated: ${new Date(device.last_seen).toLocaleString()}</small>
-          </div>
-        </div>
-      `;
-    }
-
-    function isDeviceActive(lastSeen) {
-      const diff = Date.now() - new Date(lastSeen).getTime();
-      return diff < 10 * 60 * 1000; // Active if seen in last 10 minutes
-    }
-
-    function openRenameModal(deviceId, currentName) {
-      currentEditDevice = deviceId;
-      document.getElementById('newDeviceName').value = currentName;
-      document.getElementById('renameModal').style.display = 'block';
-    }
-
-    function closeRenameModal() {
-      document.getElementById('renameModal').style.display = 'none';
-      currentEditDevice = null;
-    }
-
-    async function saveDeviceName() {
-      const newName = document.getElementById('newDeviceName').value.trim();
-      
-      if (!newName) {
-        alert('Please enter a device name');
-        return;
-      }
-
-      try {
-        const response = await fetch(`/api/devices/${currentEditDevice}/name`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ customName: newName })
-        });
-
-        if (response.ok) {
-          closeRenameModal();
-          loadDashboard(); // Reload to show new name
-        } else {
-          const error = await response.json();
-          alert('Failed to rename device: ' + error.error);
-        }
-      } catch (error) {
-        console.error('Rename failed:', error);
-        alert('Failed to rename device');
-      }
-    }
-
-    // Claim Device Functions
-    function openClaimModal() {
-      document.getElementById('deviceSerialNumber').value = '';
-      document.getElementById('claimModal').style.display = 'block';
-    }
-
-    function closeClaimModal() {
-      document.getElementById('claimModal').style.display = 'none';
-    }
-
-    async function claimDevice() {
-      const serialNumber = document.getElementById('deviceSerialNumber').value.trim();
-      
-      if (!serialNumber) {
-        alert('Please enter a device serial number');
-        return;
-      }
-
-      try {
-        const response = await fetch('/api/devices/claim', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ serialNumber })
-        });
-
-        const result = await response.json();
-
-        if (response.ok) {
-          alert(`Device "${serialNumber}" successfully claimed!`);
-          closeClaimModal();
-          loadDashboard(); // Reload to show new device
-        } else {
-          alert('Failed to claim device: ' + result.error);
-        }
-      } catch (error) {
-        console.error('Claim failed:', error);
-        alert('Failed to claim device. Please try again.');
-      }
-    }
-
-    // Close modal when clicking outside
-    window.onclick = function(event) {
-      const renameModal = document.getElementById('renameModal');
-      const claimModal = document.getElementById('claimModal');
-      
-      if (event.target === renameModal) {
-        closeRenameModal();
-      }
-      if (event.target === claimModal) {
-        closeClaimModal();
-      }
-    }
-
-    // Initialize
-    checkAuth();
-    
-    // Auto-refresh every 30 seconds
-    setInterval(loadDashboard, 30000);
-  </script>
+        // Auto-refresh every 30 seconds
+        setInterval(loadDashboard, 30000);
+    </script>
 </body>
 </html>
