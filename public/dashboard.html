@@ -460,6 +460,253 @@
             }
         }
 
+        // Open device detail modal
+        async function openDeviceModal(deviceId) {
+            selectedDeviceId = deviceId;
+            const device = devices.find(d => d.device_id === deviceId);
+
+            if (!device) return;
+
+            const displayName = device.custom_name || device.device_id;
+            document.getElementById('modalDeviceName').textContent = displayName;
+            document.getElementById('deviceModal').classList.add('active');
+
+            // Load device details
+            await loadDeviceMeasurements(deviceId);
+            await loadDeviceCharts(deviceId);
+            await loadDeviceConfig(deviceId, device);
+            loadDeviceInfo(device);
+        }
+
+        // Close modal
+        function closeModal() {
+            document.getElementById('deviceModal').classList.remove('active');
+            selectedDeviceId = null;
+            
+            // Destroy charts
+            Object.values(charts).forEach(chart => chart.destroy());
+            charts = {};
+        }
+
+        // Switch tab
+        function switchTab(tabName) {
+            // Update buttons
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+
+            // Update content
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            document.getElementById(tabName + 'Tab').classList.add('active');
+        }
+
+        // Load device measurements
+        async function loadDeviceMeasurements(deviceId) {
+            try {
+                const response = await fetch(`/api/devices/${deviceId}`, { credentials: 'include' });
+                const device = await response.json();
+                const m = device.latestMeasurement || {};
+
+                const measurements = [
+                    { label: 'CO₂', value: m.rco2, unit: 'ppm', class: getCO2Class(m.rco2) },
+                    { label: 'PM1.0', value: m.pm01, unit: 'µg/m³', class: 'good' },
+                    { label: 'PM2.5', value: m.pm02, unit: 'µg/m³', class: getPM25Class(m.pm02) },
+                    { label: 'PM10', value: m.pm10, unit: 'µg/m³', class: 'good' },
+                    { label: 'Temperature', value: m.atmp ? m.atmp.toFixed(1) : null, unit: '°C', class: 'good' },
+                    { label: 'Humidity', value: m.rhum, unit: '%', class: 'good' },
+                    { label: 'TVOC Index', value: m.tvoc_index, unit: '', class: 'good' },
+                    { label: 'NOx Index', value: m.nox_index, unit: '', class: 'good' },
+                    { label: 'WiFi Signal', value: m.wifi_rssi, unit: 'dBm', class: 'good' },
+                ];
+
+                document.getElementById('measurementsGrid').innerHTML = measurements.map(m => `
+                    <div class="measurement-item ${m.class}">
+                        <div class="measurement-label">${m.label}</div>
+                        <div>
+                            <span class="measurement-value">${m.value || '-'}</span>
+                            <span class="measurement-unit">${m.unit}</span>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Error loading measurements:', error);
+            }
+        }
+
+        // Load device charts
+        async function loadDeviceCharts(deviceId) {
+            try {
+                const response = await fetch(`/api/devices/${deviceId}/history?hours=24`, { credentials: 'include' });
+                const history = await response.json();
+
+                if (history.length === 0) return;
+
+                const labels = history.map(h => new Date(h.timestamp).toLocaleTimeString());
+                
+                // CO2 Chart
+                const co2Ctx = document.getElementById('co2Chart').getContext('2d');
+                if (charts.co2) charts.co2.destroy();
+                charts.co2 = new Chart(co2Ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'CO₂ (ppm)',
+                            data: history.map(h => h.rco2),
+                            borderColor: 'rgb(75, 192, 192)',
+                            tension: 0.1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: 'CO₂ Levels (24 Hours)'
+                            }
+                        }
+                    }
+                });
+
+                // PM2.5 Chart
+                const pm25Ctx = document.getElementById('pm25Chart').getContext('2d');
+                if (charts.pm25) charts.pm25.destroy();
+                charts.pm25 = new Chart(pm25Ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'PM2.5 (µg/m³)',
+                            data: history.map(h => h.pm02),
+                            borderColor: 'rgb(255, 99, 132)',
+                            tension: 0.1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: 'PM2.5 Levels (24 Hours)'
+                            }
+                        }
+                    }
+                });
+
+                // Temperature Chart
+                const tempCtx = document.getElementById('tempChart').getContext('2d');
+                if (charts.temp) charts.temp.destroy();
+                charts.temp = new Chart(tempCtx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Temperature (°C)',
+                            data: history.map(h => h.atmp),
+                            borderColor: 'rgb(255, 159, 64)',
+                            tension: 0.1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: 'Temperature (24 Hours)'
+                            }
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error('Error loading charts:', error);
+            }
+        }
+
+        // Load device config
+        async function loadDeviceConfig(deviceId, device) {
+            try {
+                const response = await fetch(`/api/devices/${deviceId}/config`, { credentials: 'include' });
+                const config = await response.json();
+
+                document.getElementById('deviceName').value = device.custom_name || device.device_id;
+                document.getElementById('deviceLocation').value = config.location || '';
+                document.getElementById('ledMode').value = config.ledMode || 'co2';
+                document.getElementById('displayMode').value = config.displayMode || 'default';
+            } catch (error) {
+                console.error('Error loading config:', error);
+            }
+        }
+
+        // Save device config
+        async function saveDeviceConfig() {
+            if (!selectedDeviceId) return;
+
+            try {
+                const config = {
+                    customName: document.getElementById('deviceName').value,
+                    location: document.getElementById('deviceLocation').value,
+                    ledMode: document.getElementById('ledMode').value,
+                    displayMode: document.getElementById('displayMode').value
+                };
+
+                // Save custom name
+                await fetch(`/api/devices/${selectedDeviceId}/name`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ customName: config.customName })
+                });
+
+                // Save config
+                await fetch(`/api/devices/${selectedDeviceId}/config`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify(config)
+                });
+
+                alert('Configuration saved successfully!');
+                closeModal();
+                loadDashboard();
+            } catch (error) {
+                console.error('Error saving config:', error);
+                alert('Failed to save configuration');
+            }
+        }
+
+        // Load device info
+        function loadDeviceInfo(device) {
+            const infoHtml = `
+                <div class="info-item">
+                    <strong>Device ID:</strong> ${device.device_id}
+                </div>
+                <div class="info-item">
+                    <strong>Serial Number:</strong> ${device.serial_number || 'N/A'}
+                </div>
+                <div class="info-item">
+                    <strong>Model:</strong> ${device.model || 'AirGradient'}
+                </div>
+                <div class="info-item">
+                    <strong>Firmware:</strong> ${device.firmware_version || 'Unknown'}
+                </div>
+                <div class="info-item">
+                    <strong>WiFi SSID:</strong> ${device.latestMeasurement?.wifi_ssid || 'N/A'}
+                </div>
+                <div class="info-item">
+                    <strong>WiFi Signal:</strong> ${device.latestMeasurement?.wifi_rssi || 'N/A'} dBm
+                </div>
+                <div class="info-item">
+                    <strong>Boot Count:</strong> ${device.latestMeasurement?.boot || 'N/A'}
+                </div>
+                <div class="info-item">
+                    <strong>First Seen:</strong> ${new Date(device.first_seen).toLocaleString()}
+                </div>
+                <div class="info-item">
+                    <strong>Last Seen:</strong> ${new Date(device.last_seen).toLocaleString()}
+                </div>
+            `;
+            document.getElementById('deviceInfoContent').innerHTML = infoHtml;
+        }
+
         // Initialize
         checkAuth();
         
