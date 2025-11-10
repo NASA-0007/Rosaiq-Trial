@@ -432,49 +432,62 @@ app.get('/api/admin/devices/unassigned', requireAdmin, (req, res) => {
 /**
  * GET /sensors/rosaiq::serialnumber/generic/os/firmware.bin?current_firmware=version
  * OTA firmware update endpoint (AirGradient compatible)
+ * 
+ * Responses:
+ * - 304: Device already on latest version (with explanation text)
+ * - 400: Unknown firmware version (e.g. "snapshot" from local builds)
+ * - 200: Update available, returns binary data
+ * - 404: No firmware available on server
  */
 app.get('/sensors/:deviceId/generic/os/firmware.bin', (req, res) => {
   try {
     const { deviceId } = req.params;
     const currentVersion = req.query.current_firmware;
 
-    console.log(`OTA request from ${deviceId}, current version: ${currentVersion}`);
+    console.log(`[OTA] Request from ${deviceId}, current version: ${currentVersion}`);
 
     // Get latest firmware
     const latestFirmware = database.getLatestFirmware();
 
     if (!latestFirmware) {
-      console.log('No firmware available');
-      return res.status(404).send('No firmware available');
+      console.log('[OTA] No firmware available on server');
+      return res.status(404).send('No firmware available on server');
     }
 
-    // Check if update is needed
+    // Check if device reports an unknown/local build version (e.g., "snapshot")
+    if (currentVersion && (currentVersion === 'snapshot' || currentVersion.includes('dev') || currentVersion.includes('local'))) {
+      console.log(`[OTA] Device ${deviceId} running unknown/local firmware version: ${currentVersion}`);
+      return res.status(400).send(''); // Empty payload for unknown versions
+    }
+
+    // Check if device is already on latest version
     if (currentVersion && currentVersion === latestFirmware.version) {
-      console.log(`Device ${deviceId} is already on latest version ${currentVersion}`);
-      return res.status(304).send('Already up to date');
+      console.log(`[OTA] Device ${deviceId} already on latest version ${currentVersion}`);
+      return res.status(304).send(`Device is already running the latest firmware version ${currentVersion}`);
     }
 
     // Send firmware file
     const firmwarePath = path.join(__dirname, latestFirmware.file_path);
     
     if (!fs.existsSync(firmwarePath)) {
-      console.error(`Firmware file not found: ${firmwarePath}`);
-      return res.status(404).send('Firmware file not found');
+      console.error(`[OTA ERROR] Firmware file not found: ${firmwarePath}`);
+      return res.status(404).send('Firmware file not found on server');
     }
 
-    console.log(`✓ Sending firmware ${latestFirmware.version} to ${deviceId}`);
+    console.log(`[OTA] ✓ Sending firmware ${latestFirmware.version} to ${deviceId} (from ${currentVersion || 'unknown'})`);
     
     // Log the update event
     database.logEvent(deviceId, 'ota_update', {
-      from_version: currentVersion,
+      from_version: currentVersion || 'unknown',
       to_version: latestFirmware.version
     });
 
+    // Send binary with filename as "firmware.bin" (AirGradient default)
     res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Disposition', `attachment; filename="firmware-${latestFirmware.version}.bin"`);
+    res.setHeader('Content-Disposition', 'attachment; filename="firmware.bin"');
     res.sendFile(firmwarePath);
   } catch (error) {
-    console.error('OTA error:', error);
+    console.error('[OTA ERROR]', error);
     res.status(500).send('Internal server error');
   }
 });
@@ -554,24 +567,33 @@ app.get('/api/admin/firmware', requireAdmin, (req, res) => {
  */
 app.delete('/api/admin/firmware/:id', requireAdmin, (req, res) => {
   try {
-    const firmware = database.getFirmwareByVersion(req.params.id);
+    const firmwareId = parseInt(req.params.id);
+    
+    // Get firmware by ID (not version)
+    const firmware = database.db.prepare('SELECT * FROM firmware WHERE id = ?').get(firmwareId);
     
     if (!firmware) {
       return res.status(404).json({ error: 'Firmware not found' });
     }
 
-    // Delete file
+    console.log(`[FIRMWARE DELETE] Deleting firmware ID ${firmwareId}, version ${firmware.version}`);
+
+    // Delete file from filesystem
     const firmwarePath = path.join(__dirname, firmware.file_path);
     if (fs.existsSync(firmwarePath)) {
       fs.unlinkSync(firmwarePath);
+      console.log(`[FIRMWARE DELETE] ✓ Deleted file: ${firmwarePath}`);
+    } else {
+      console.log(`[FIRMWARE DELETE] Warning: File not found: ${firmwarePath}`);
     }
 
     // Delete from database
-    database.deleteFirmware(firmware.id);
+    database.deleteFirmware(firmwareId);
+    console.log(`[FIRMWARE DELETE] ✓ Deleted from database`);
 
-    res.json({ success: true });
+    res.json({ success: true, message: 'Firmware deleted successfully' });
   } catch (error) {
-    console.error('Error deleting firmware:', error);
+    console.error('[FIRMWARE DELETE ERROR]', error);
     res.status(500).json({ error: error.message });
   }
 });
