@@ -5,6 +5,7 @@
 ![RosaIQ Dashboard](https://img.shields.io/badge/Status-Production_Ready-success)
 ![Node.js](https://img.shields.io/badge/Node.js-14+-green)
 ![License](https://img.shields.io/badge/License-MIT-blue)
+![Render Compatible](https://img.shields.io/badge/Render-Compatible-blue?logo=render)
 
 ## Features
 
@@ -40,6 +41,25 @@
 - Your data stays on your infrastructure
 - Complete privacy and control
 - Works offline
+
+## Deployment Options
+
+### 🚀 Deploy to Render (Recommended)
+
+**One-click deploy to the cloud for FREE!**
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy)
+
+See [RENDER_DEPLOYMENT.md](RENDER_DEPLOYMENT.md) for detailed deployment instructions.
+
+**Why Render?**
+- ✅ Free tier with 512MB RAM
+- ✅ Persistent disk storage (1GB)
+- ✅ Automatic SSL certificates
+- ✅ Auto-deploys from GitHub
+- ✅ No credit card required
+
+### 💻 Local Development
 
 ## Quick Start
 

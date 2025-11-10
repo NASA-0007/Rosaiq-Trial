@@ -13,6 +13,8 @@ module.exports = {
 
   // Database configuration
   database: {
+    // For Render: use persistent disk path
+    // For local dev: use current directory
     path: process.env.DB_PATH || './rosaiq-airquality.db',
   },
 

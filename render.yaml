@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: rosaiq-airgradient-server
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: 18.17.0
+      - key: PORT
+        generateValue: true
+      - key: HOST
+        value: 0.0.0.0
+      - key: DB_PATH
+        value: /opt/render/project/.data/rosaiq-airquality.db
+      - key: LOG_LEVEL
+        value: info
+    disk:
+      name: rosaiq-data
+      mountPath: /opt/render/project/.data
+      sizeGB: 1

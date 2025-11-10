@@ -28,6 +28,14 @@ class RosaIQDatabase {
    */
   initialize() {
     try {
+      // Ensure database directory exists (for Render persistent disk)
+      const dbDir = path.dirname(config.database.path);
+      const fs = require('fs');
+      if (!fs.existsSync(dbDir)) {
+        fs.mkdirSync(dbDir, { recursive: true });
+        console.log(`✓ Created database directory: ${dbDir}`);
+      }
+
       this.db = new Database(config.database.path);
       this.db.pragma('journal_mode = WAL');
       this.createTables();

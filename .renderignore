@@ -1,0 +1,43 @@
+# Files to ignore during Render deployment
+
+# Documentation
+*.md
+docs/
+RENDER_*.md
+
+# Tests and scripts
+test-server.ps1
+test-server.sh
+diagnostics.ps1
+
+# Local development
+.env
+.env.local
+*.local
+
+# Database files (use persistent disk instead)
+*.db
+*.db-shm
+*.db-wal
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Windows scripts
+*.bat
+
+# Backup files
+*.backup
+*.bak
