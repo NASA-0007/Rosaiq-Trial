@@ -121,14 +121,22 @@ app.post('/api/auth/login', (req, res) => {
     req.session.username = user.username;
     req.session.role = user.role;
 
-    res.json({
-      success: true,
-      user: {
-        id: user.id,
-        username: user.username,
-        role: user.role,
-        email: user.email
+    // Save session explicitly
+    req.session.save((err) => {
+      if (err) {
+        console.error('Session save error:', err);
+        return res.status(500).json({ error: 'Session error' });
       }
+      
+      res.json({
+        success: true,
+        user: {
+          id: user.id,
+          username: user.username,
+          role: user.role,
+          email: user.email
+        }
+      });
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -241,14 +249,22 @@ app.post('/api/auth/signup', (req, res) => {
     req.session.username = username;
     req.session.role = 'user';
 
-    res.json({
-      success: true,
-      user: {
-        id: result.lastInsertRowid,
-        username: username,
-        role: 'user',
-        email: email
+    // Save session explicitly
+    req.session.save((err) => {
+      if (err) {
+        console.error('Session save error:', err);
+        return res.status(500).json({ error: 'Session error' });
       }
+      
+      res.json({
+        success: true,
+        user: {
+          id: result.lastInsertRowid,
+          username: username,
+          role: 'user',
+          email: email
+        }
+      });
     });
   } catch (error) {
     console.error('Signup error:', error);
