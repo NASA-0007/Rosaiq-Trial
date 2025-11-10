@@ -58,6 +58,9 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
 });
 
+// Trust proxy (required for Render deployment)
+app.set('trust proxy', 1);
+
 // Middleware
 app.use(cors({
   origin: true,
@@ -75,8 +78,10 @@ app.use(session({
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
-  }
+    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax' // Required for cross-origin in production
+  },
+  proxy: true // Trust the reverse proxy
 }));
 
 // Serve static files (no auth on static files - auth happens in JS)
@@ -121,12 +126,16 @@ app.post('/api/auth/login', (req, res) => {
     req.session.username = user.username;
     req.session.role = user.role;
 
+    console.log(`[LOGIN] Session created for user: ${user.username}, role: ${user.role}, sessionID: ${req.sessionID}`);
+
     // Save session explicitly
     req.session.save((err) => {
       if (err) {
-        console.error('Session save error:', err);
+        console.error('[LOGIN ERROR] Session save error:', err);
         return res.status(500).json({ error: 'Session error' });
       }
+      
+      console.log(`[LOGIN SUCCESS] Session saved for user: ${user.username}`);
       
       res.json({
         success: true,
@@ -163,8 +172,11 @@ app.post('/api/auth/logout', (req, res) => {
  * Get current session
  */
 app.get('/api/auth/session', (req, res) => {
+  console.log(`[SESSION CHECK] SessionID: ${req.sessionID}, UserID: ${req.session.userId}, Cookies: ${JSON.stringify(req.cookies)}`);
+  
   if (req.session.userId) {
     const user = database.getUserById(req.session.userId);
+    console.log(`[SESSION CHECK] Authenticated user: ${user.username}`);
     res.json({
       authenticated: true,
       user: {
@@ -175,6 +187,7 @@ app.get('/api/auth/session', (req, res) => {
       }
     });
   } else {
+    console.log(`[SESSION CHECK] Not authenticated - no userId in session`);
     res.json({ authenticated: false });
   }
 });
