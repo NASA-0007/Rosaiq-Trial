@@ -426,11 +426,65 @@ app.get('/api/admin/devices/unassigned', requireAdmin, (req, res) => {
 });
 
 // ============================================================================
+// AirGradient Local Server API Routes
+// ============================================================================
+
+/**
+ * GET /config
+ * Get device configuration (AirGradient local server API)
+ * Returns configuration including httpDomain for OTA updates
+ */
+app.get('/config', (req, res) => {
+  console.log('[CONFIG] Device requesting configuration');
+  console.log('[CONFIG] Headers:', req.headers);
+  console.log('[CONFIG] IP:', req.ip);
+  
+  // Get server hostname from request
+  const protocol = req.protocol;
+  const host = req.get('host');
+  const httpDomain = `${protocol}://${host}`;
+  
+  console.log('[CONFIG] Responding with httpDomain:', httpDomain);
+  
+  // Return AirGradient-compatible configuration
+  res.json({
+    country: "US",
+    pmStandard: "ugm3",
+    ledBarMode: "pm",
+    abcDays: 8,
+    tvocLearningOffset: 12,
+    noxLearningOffset: 12,
+    mqttBrokerUrl: "",
+    httpDomain: httpDomain,  // This tells device to use our server for OTA
+    temperatureUnit: "f",
+    configurationControl: "both",  // Allow both local and cloud config
+    postDataToAirGradient: false,  // Don't send data to AirGradient cloud
+    ledBarBrightness: 100,
+    displayBrightness: 100,
+    offlineMode: false,
+    model: "I-9PSL",
+    disableCloudConnection: false
+  });
+});
+
+/**
+ * PUT /config
+ * Update device configuration (AirGradient local server API)
+ */
+app.put('/config', (req, res) => {
+  console.log('[CONFIG PUT] Device updating configuration');
+  console.log('[CONFIG PUT] Body:', req.body);
+  
+  // Just acknowledge the update
+  res.send('Success');
+});
+
+// ============================================================================
 // Firmware OTA Update Routes
 // ============================================================================
 
 /**
- * GET /sensors/rosaiq::serialnumber/generic/os/firmware.bin?current_firmware=version
+ * GET /sensors/:deviceId/generic/os/firmware.bin?current_firmware=version
  * OTA firmware update endpoint (AirGradient compatible)
  * 
  * Responses:
