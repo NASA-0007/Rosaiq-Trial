@@ -8,9 +8,15 @@
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const session = require('express-session');
+const cookieParser = require('cookie-parser');
+const bcrypt = require('bcryptjs');
+const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 const config = require('./config');
 const database = require('./database');
+const { requireAuth, requireAdmin, optionalAuth } = require('./middleware/auth');
 
 const app = express();
 
@@ -23,10 +29,58 @@ function getISTTimestamp() {
   return istDate.toISOString().replace('Z', '+05:30');
 }
 
+// Create firmware upload directory
+const firmwareDir = path.join(__dirname, 'firmware');
+if (!fs.existsSync(firmwareDir)) {
+  fs.mkdirSync(firmwareDir, { recursive: true });
+}
+
+// Configure multer for firmware uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, firmwareDir);
+  },
+  filename: (req, file, cb) => {
+    const version = req.body.version || Date.now();
+    cb(null, `firmware-${version}.bin`);
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  fileFilter: (req, file, cb) => {
+    if (file.originalname.endsWith('.bin')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only .bin files are allowed'));
+    }
+  },
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+});
+
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: true,
+  credentials: true
+}));
+app.use(cookieParser());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+
+// Session configuration
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'rosaiq-secret-key-change-in-production',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  }
+}));
+
+// Serve static files with auth protection
+app.use('/admin', requireAdmin, express.static(path.join(__dirname, 'public/admin')));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Request logging middleware
@@ -34,6 +88,366 @@ app.use((req, res, next) => {
   const timestamp = getISTTimestamp();
   console.log(`[${timestamp}] ${req.method} ${req.path}`);
   next();
+});
+
+// ============================================================================
+// Authentication & User Management Routes
+// ============================================================================
+
+/**
+ * POST /api/auth/login
+ * User login
+ */
+app.post('/api/auth/login', (req, res) => {
+  const { username, password } = req.body;
+
+  try {
+    const user = database.getUserByUsername(username);
+    
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const validPassword = bcrypt.compareSync(password, user.password_hash);
+    
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Update last login
+    database.updateLastLogin(user.id);
+
+    // Set session
+    req.session.userId = user.id;
+    req.session.username = user.username;
+    req.session.role = user.role;
+
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        email: user.email
+      }
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/auth/logout
+ * User logout
+ */
+app.post('/api/auth/logout', (req, res) => {
+  req.session.destroy((err) => {
+    if (err) {
+      return res.status(500).json({ error: 'Logout failed' });
+    }
+    res.clearCookie('connect.sid');
+    res.json({ success: true });
+  });
+});
+
+/**
+ * GET /api/auth/session
+ * Get current session
+ */
+app.get('/api/auth/session', (req, res) => {
+  if (req.session.userId) {
+    const user = database.getUserById(req.session.userId);
+    res.json({
+      authenticated: true,
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        email: user.email
+      }
+    });
+  } else {
+    res.json({ authenticated: false });
+  }
+});
+
+/**
+ * POST /api/auth/register (Admin only)
+ * Create new user
+ */
+app.post('/api/auth/register', requireAdmin, (req, res) => {
+  const { username, password, email, role } = req.body;
+
+  try {
+    // Check if user exists
+    const existing = database.getUserByUsername(username);
+    if (existing) {
+      return res.status(400).json({ error: 'Username already exists' });
+    }
+
+    // Hash password
+    const passwordHash = bcrypt.hashSync(password, 10);
+
+    // Create user
+    const result = database.createUser(username, passwordHash, email, role || 'user');
+
+    res.json({
+      success: true,
+      userId: result.lastInsertRowid
+    });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/users (Admin only)
+ * Get all users
+ */
+app.get('/api/users', requireAdmin, (req, res) => {
+  try {
+    const users = database.getAllUsers();
+    res.json(users);
+  } catch (error) {
+    console.error('Error getting users:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * DELETE /api/users/:userId (Admin only)
+ * Delete user
+ */
+app.delete('/api/users/:userId', requireAdmin, (req, res) => {
+  try {
+    database.deleteUser(req.params.userId);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// Device Assignment Routes
+// ============================================================================
+
+/**
+ * POST /api/devices/:deviceId/assign (Admin only)
+ * Assign device to user
+ */
+app.post('/api/devices/:deviceId/assign', requireAdmin, (req, res) => {
+  try {
+    const { userId } = req.body;
+    database.assignDeviceToUser(req.params.deviceId, userId);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error assigning device:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/devices/:deviceId/unassign (Admin only)
+ * Unassign device from user
+ */
+app.post('/api/devices/:deviceId/unassign', requireAdmin, (req, res) => {
+  try {
+    database.unassignDevice(req.params.deviceId);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error unassigning device:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * PUT /api/devices/:deviceId/name
+ * Update device custom name (user must own device or be admin)
+ */
+app.put('/api/devices/:deviceId/name', requireAuth, (req, res) => {
+  try {
+    const { customName } = req.body;
+    const deviceId = req.params.deviceId;
+    
+    // Check ownership or admin
+    if (req.session.role !== 'admin' && !database.userOwnsDevice(req.session.userId, deviceId)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    database.updateDeviceCustomName(deviceId, customName);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating device name:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/admin/devices/unassigned (Admin only)
+ * Get unassigned devices
+ */
+app.get('/api/admin/devices/unassigned', requireAdmin, (req, res) => {
+  try {
+    const devices = database.getUnassignedDevices();
+    res.json(devices);
+  } catch (error) {
+    console.error('Error getting unassigned devices:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// Firmware OTA Update Routes
+// ============================================================================
+
+/**
+ * GET /sensors/rosaiq::serialnumber/generic/os/firmware.bin?current_firmware=version
+ * OTA firmware update endpoint (AirGradient compatible)
+ */
+app.get('/sensors/:deviceId/generic/os/firmware.bin', (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    const currentVersion = req.query.current_firmware;
+
+    console.log(`OTA request from ${deviceId}, current version: ${currentVersion}`);
+
+    // Get latest firmware
+    const latestFirmware = database.getLatestFirmware();
+
+    if (!latestFirmware) {
+      console.log('No firmware available');
+      return res.status(404).send('No firmware available');
+    }
+
+    // Check if update is needed
+    if (currentVersion && currentVersion === latestFirmware.version) {
+      console.log(`Device ${deviceId} is already on latest version ${currentVersion}`);
+      return res.status(304).send('Already up to date');
+    }
+
+    // Send firmware file
+    const firmwarePath = path.join(__dirname, latestFirmware.file_path);
+    
+    if (!fs.existsSync(firmwarePath)) {
+      console.error(`Firmware file not found: ${firmwarePath}`);
+      return res.status(404).send('Firmware file not found');
+    }
+
+    console.log(`✓ Sending firmware ${latestFirmware.version} to ${deviceId}`);
+    
+    // Log the update event
+    database.logEvent(deviceId, 'ota_update', {
+      from_version: currentVersion,
+      to_version: latestFirmware.version
+    });
+
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="firmware-${latestFirmware.version}.bin"`);
+    res.sendFile(firmwarePath);
+  } catch (error) {
+    console.error('OTA error:', error);
+    res.status(500).send('Internal server error');
+  }
+});
+
+/**
+ * POST /api/admin/firmware/upload (Admin only)
+ * Upload new firmware
+ */
+app.post('/api/admin/firmware/upload', requireAdmin, upload.single('firmware'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const { version, notes } = req.body;
+
+    if (!version) {
+      // Delete uploaded file
+      fs.unlinkSync(req.file.path);
+      return res.status(400).json({ error: 'Version is required' });
+    }
+
+    // Check if version already exists
+    const existing = database.getFirmwareByVersion(version);
+    if (existing) {
+      fs.unlinkSync(req.file.path);
+      return res.status(400).json({ error: 'Version already exists' });
+    }
+
+    // Save firmware metadata to database
+    database.addFirmware(
+      version,
+      req.file.filename,
+      `firmware/${req.file.filename}`,
+      req.file.size,
+      req.session.userId,
+      notes
+    );
+
+    console.log(`✓ Firmware ${version} uploaded by user ${req.session.username}`);
+
+    res.json({
+      success: true,
+      firmware: {
+        version,
+        filename: req.file.filename,
+        size: req.file.size
+      }
+    });
+  } catch (error) {
+    // Clean up uploaded file on error
+    if (req.file) {
+      fs.unlinkSync(req.file.path);
+    }
+    console.error('Firmware upload error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/admin/firmware (Admin only)
+ * Get all firmware versions
+ */
+app.get('/api/admin/firmware', requireAdmin, (req, res) => {
+  try {
+    const firmware = database.getAllFirmware();
+    res.json(firmware);
+  } catch (error) {
+    console.error('Error getting firmware:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * DELETE /api/admin/firmware/:id (Admin only)
+ * Delete firmware
+ */
+app.delete('/api/admin/firmware/:id', requireAdmin, (req, res) => {
+  try {
+    const firmware = database.getFirmwareByVersion(req.params.id);
+    
+    if (!firmware) {
+      return res.status(404).json({ error: 'Firmware not found' });
+    }
+
+    // Delete file
+    const firmwarePath = path.join(__dirname, firmware.file_path);
+    if (fs.existsSync(firmwarePath)) {
+      fs.unlinkSync(firmwarePath);
+    }
+
+    // Delete from database
+    database.deleteFirmware(firmware.id);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting firmware:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // API Authentication middleware (if enabled)
@@ -158,19 +572,30 @@ app.get('/sensors/:deviceId/one/config', authenticate, (req, res) => {
 
 /**
  * GET /api/devices
- * Get all registered devices
+ * Get devices (filtered by user unless admin)
  */
-app.get('/api/devices', (req, res) => {
+app.get('/api/devices', requireAuth, (req, res) => {
   try {
-    const devices = database.getAllDevices();
+    let devices;
+    
+    // Admin sees all devices, users see only their assigned devices
+    if (req.session.role === 'admin') {
+      devices = database.getAllDevices();
+    } else {
+      devices = database.getDevicesByUserId(req.session.userId);
+    }
     
     // Enrich with latest measurements
     const enrichedDevices = devices.map(device => {
       const latestMeasurement = database.getLatestMeasurement(device.device_id);
       const stats = database.getDeviceStats(device.device_id);
       
+      // Use custom name if set, otherwise use device_id
+      const displayName = device.custom_name || device.device_id;
+      
       return {
         ...device,
+        displayName,
         latestMeasurement,
         stats,
       };
@@ -185,14 +610,19 @@ app.get('/api/devices', (req, res) => {
 
 /**
  * GET /api/devices/:deviceId
- * Get specific device information
+ * Get specific device information (must own or be admin)
  */
-app.get('/api/devices/:deviceId', (req, res) => {
+app.get('/api/devices/:deviceId', requireAuth, (req, res) => {
   try {
     const device = database.getDevice(req.params.deviceId);
     
     if (!device) {
       return res.status(404).json({ error: 'Device not found' });
+    }
+
+    // Check ownership or admin
+    if (req.session.role !== 'admin' && !database.userOwnsDevice(req.session.userId, req.params.deviceId)) {
+      return res.status(403).json({ error: 'Access denied' });
     }
 
     const latestMeasurement = database.getLatestMeasurement(req.params.deviceId);
@@ -211,11 +641,17 @@ app.get('/api/devices/:deviceId', (req, res) => {
 
 /**
  * PUT /api/devices/:deviceId
- * Update device information
+ * Update device information (must own or be admin)
  */
-app.put('/api/devices/:deviceId', (req, res) => {
+app.put('/api/devices/:deviceId', requireAuth, (req, res) => {
   try {
     const { name, location, notes } = req.body;
+    
+    // Check ownership or admin
+    if (req.session.role !== 'admin' && !database.userOwnsDevice(req.session.userId, req.params.deviceId)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    
     const updates = {};
 
     if (name !== undefined) updates.name = name;
@@ -233,10 +669,15 @@ app.put('/api/devices/:deviceId', (req, res) => {
 
 /**
  * GET /api/devices/:deviceId/measurements
- * Get measurements for a device
+ * Get measurements for a device (must own or be admin)
  */
-app.get('/api/devices/:deviceId/measurements', (req, res) => {
+app.get('/api/devices/:deviceId/measurements', requireAuth, (req, res) => {
   try {
+    // Check ownership or admin
+    if (req.session.role !== 'admin' && !database.userOwnsDevice(req.session.userId, req.params.deviceId)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    
     const { start, end, limit } = req.query;
     
     const measurements = database.getMeasurements(
@@ -255,10 +696,15 @@ app.get('/api/devices/:deviceId/measurements', (req, res) => {
 
 /**
  * GET /api/devices/:deviceId/config
- * Get device configuration
+ * Get device configuration (must own or be admin)
  */
-app.get('/api/devices/:deviceId/config', (req, res) => {
+app.get('/api/devices/:deviceId/config', requireAuth, (req, res) => {
   try {
+    // Check ownership or admin
+    if (req.session.role !== 'admin' && !database.userOwnsDevice(req.session.userId, req.params.deviceId)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    
     const config = database.getDeviceConfig(req.params.deviceId);
     res.json(config);
   } catch (error) {
@@ -269,10 +715,15 @@ app.get('/api/devices/:deviceId/config', (req, res) => {
 
 /**
  * PUT /api/devices/:deviceId/config
- * Update device configuration
+ * Update device configuration (must own or be admin)
  */
-app.put('/api/devices/:deviceId/config', (req, res) => {
+app.put('/api/devices/:deviceId/config', requireAuth, (req, res) => {
   try {
+    // Check ownership or admin
+    if (req.session.role !== 'admin' && !database.userOwnsDevice(req.session.userId, req.params.deviceId)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    
     database.setDeviceConfig(req.params.deviceId, req.body);
     
     database.logEvent(req.params.deviceId, 'config_updated', req.body);
@@ -286,11 +737,19 @@ app.put('/api/devices/:deviceId/config', (req, res) => {
 
 /**
  * GET /api/dashboard/summary
- * Get dashboard summary statistics
+ * Get dashboard summary statistics (filtered by user)
  */
-app.get('/api/dashboard/summary', (req, res) => {
+app.get('/api/dashboard/summary', requireAuth, (req, res) => {
   try {
-    const devices = database.getAllDevices();
+    let devices;
+    
+    // Admin sees all devices, users see only their assigned devices
+    if (req.session.role === 'admin') {
+      devices = database.getAllDevices();
+    } else {
+      devices = database.getDevicesByUserId(req.session.userId);
+    }
+    
     const activeDevices = devices.filter(d => {
       const lastSeen = new Date(d.last_seen);
       const now = new Date();
@@ -331,10 +790,10 @@ app.get('/api/dashboard/summary', (req, res) => {
 });
 
 /**
- * POST /api/maintenance/cleanup
+ * POST /api/maintenance/cleanup (Admin only)
  * Clean old data based on retention policy
  */
-app.post('/api/maintenance/cleanup', (req, res) => {
+app.post('/api/maintenance/cleanup', requireAdmin, (req, res) => {
   try {
     const result = database.cleanOldData();
     res.json({

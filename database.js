@@ -51,19 +51,44 @@ class RosaIQDatabase {
    * Create database tables
    */
   createTables() {
+    // Users table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        email TEXT,
+        role TEXT DEFAULT 'user',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_login DATETIME
+      )
+    `);
+
+    // Create default admin user if not exists
+    const adminExists = this.db.prepare('SELECT id FROM users WHERE username = ?').get('admin');
+    if (!adminExists) {
+      const bcrypt = require('bcryptjs');
+      const defaultPassword = bcrypt.hashSync('rosaiq123$', 10);
+      this.db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run('admin', defaultPassword, 'admin');
+      console.log('✓ Default admin user created (username: admin, password: admin123)');
+    }
+
     // Devices table
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS devices (
         device_id TEXT PRIMARY KEY,
         serial_number TEXT NOT NULL UNIQUE,
+        custom_name TEXT,
         name TEXT,
         location TEXT,
         model TEXT,
         firmware_version TEXT,
+        user_id INTEGER,
         first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
         last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
         status TEXT DEFAULT 'active',
-        notes TEXT
+        notes TEXT,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
       )
     `);
 
@@ -140,6 +165,21 @@ class RosaIQDatabase {
         event_data TEXT,
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE CASCADE
+      )
+    `);
+
+    // Firmware uploads table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS firmware (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        version TEXT NOT NULL UNIQUE,
+        filename TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        file_size INTEGER,
+        uploaded_by INTEGER,
+        uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        notes TEXT,
+        FOREIGN KEY (uploaded_by) REFERENCES users(id)
       )
     `);
 
@@ -397,20 +437,165 @@ class RosaIQDatabase {
     const eventDate = new Date();
     eventDate.setDate(eventDate.getDate() - config.dataRetention.events);
 
-    const deleteMeasurements = this.db.prepare(
-      'DELETE FROM measurements WHERE timestamp < ?'
-    );
-    const deleteEvents = this.db.prepare(
-      'DELETE FROM events WHERE timestamp < ?'
-    );
+    const measurementStmt = this.db.prepare('DELETE FROM measurements WHERE timestamp < ?');
+    const eventStmt = this.db.prepare('DELETE FROM events WHERE timestamp < ?');
 
-    const measResult = deleteMeasurements.run(measurementDate.toISOString());
-    const eventResult = deleteEvents.run(eventDate.toISOString());
+    const measurementsDeleted = measurementStmt.run(measurementDate.toISOString()).changes;
+    const eventsDeleted = eventStmt.run(eventDate.toISOString()).changes;
 
-    return {
-      measurementsDeleted: measResult.changes,
-      eventsDeleted: eventResult.changes,
-    };
+    console.log(`Cleanup: Removed ${measurementsDeleted} old measurements and ${eventsDeleted} old events`);
+    return { measurementsDeleted, eventsDeleted };
+  }
+
+  // ============================================================================
+  // User Management Methods
+  // ============================================================================
+
+  /**
+   * Create a new user
+   */
+  createUser(username, passwordHash, email = null, role = 'user') {
+    const stmt = this.db.prepare(`
+      INSERT INTO users (username, password_hash, email, role)
+      VALUES (?, ?, ?, ?)
+    `);
+    return stmt.run(username, passwordHash, email, role);
+  }
+
+  /**
+   * Get user by username
+   */
+  getUserByUsername(username) {
+    const stmt = this.db.prepare('SELECT * FROM users WHERE username = ?');
+    return stmt.get(username);
+  }
+
+  /**
+   * Get user by ID
+   */
+  getUserById(userId) {
+    const stmt = this.db.prepare('SELECT id, username, email, role, created_at, last_login FROM users WHERE id = ?');
+    return stmt.get(userId);
+  }
+
+  /**
+   * Get all users (admin only)
+   */
+  getAllUsers() {
+    const stmt = this.db.prepare('SELECT id, username, email, role, created_at, last_login FROM users ORDER BY created_at DESC');
+    return stmt.all();
+  }
+
+  /**
+   * Update user last login
+   */
+  updateLastLogin(userId) {
+    const timestamp = getISTTimestamp();
+    const stmt = this.db.prepare('UPDATE users SET last_login = ? WHERE id = ?');
+    return stmt.run(timestamp, userId);
+  }
+
+  /**
+   * Delete user
+   */
+  deleteUser(userId) {
+    const stmt = this.db.prepare('DELETE FROM users WHERE id = ?');
+    return stmt.run(userId);
+  }
+
+  /**
+   * Assign device to user
+   */
+  assignDeviceToUser(deviceId, userId) {
+    const stmt = this.db.prepare('UPDATE devices SET user_id = ? WHERE device_id = ?');
+    return stmt.run(userId, deviceId);
+  }
+
+  /**
+   * Unassign device from user
+   */
+  unassignDevice(deviceId) {
+    const stmt = this.db.prepare('UPDATE devices SET user_id = NULL WHERE device_id = ?');
+    return stmt.run(deviceId);
+  }
+
+  /**
+   * Get devices assigned to user
+   */
+  getDevicesByUserId(userId) {
+    const stmt = this.db.prepare('SELECT * FROM devices WHERE user_id = ? ORDER BY last_seen DESC');
+    return stmt.all(userId);
+  }
+
+  /**
+   * Get unassigned devices (admin only)
+   */
+  getUnassignedDevices() {
+    const stmt = this.db.prepare('SELECT * FROM devices WHERE user_id IS NULL ORDER BY last_seen DESC');
+    return stmt.all();
+  }
+
+  /**
+   * Update device custom name
+   */
+  updateDeviceCustomName(deviceId, customName) {
+    const stmt = this.db.prepare('UPDATE devices SET custom_name = ? WHERE device_id = ?');
+    return stmt.run(customName, deviceId);
+  }
+
+  /**
+   * Check if user owns device
+   */
+  userOwnsDevice(userId, deviceId) {
+    const stmt = this.db.prepare('SELECT 1 FROM devices WHERE device_id = ? AND user_id = ?');
+    return stmt.get(deviceId, userId) !== undefined;
+  }
+
+  // ============================================================================
+  // Firmware Management Methods
+  // ============================================================================
+
+  /**
+   * Add firmware upload
+   */
+  addFirmware(version, filename, filePath, fileSize, uploadedBy, notes = null) {
+    const stmt = this.db.prepare(`
+      INSERT INTO firmware (version, filename, file_path, file_size, uploaded_by, notes)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    return stmt.run(version, filename, filePath, fileSize, uploadedBy, notes);
+  }
+
+  /**
+   * Get firmware by version
+   */
+  getFirmwareByVersion(version) {
+    const stmt = this.db.prepare('SELECT * FROM firmware WHERE version = ?');
+    return stmt.get(version);
+  }
+
+  /**
+   * Get latest firmware
+   */
+  getLatestFirmware() {
+    const stmt = this.db.prepare('SELECT * FROM firmware ORDER BY uploaded_at DESC LIMIT 1');
+    return stmt.get();
+  }
+
+  /**
+   * Get all firmware versions
+   */
+  getAllFirmware() {
+    const stmt = this.db.prepare('SELECT * FROM firmware ORDER BY uploaded_at DESC');
+    return stmt.all();
+  }
+
+  /**
+   * Delete firmware
+   */
+  deleteFirmware(id) {
+    const stmt = this.db.prepare('DELETE FROM firmware WHERE id = ?');
+    return stmt.run(id);
   }
 
   /**
@@ -419,7 +604,7 @@ class RosaIQDatabase {
   close() {
     if (this.db) {
       this.db.close();
-      console.log('Database connection closed');
+      console.log('✓ Database connection closed');
     }
   }
 }

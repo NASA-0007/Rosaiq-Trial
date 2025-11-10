@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Dashboard - RosaIQ</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .logout-btn {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      padding: 10px 20px;
+      background: #dc3545;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .logout-btn:hover {
+      background: #c82333;
+    }
+
+    .welcome-user {
+      text-align: center;
+      margin: 20px 0;
+      font-size: 18px;
+      color: #666;
+    }
+
+    .device-card {
+      position: relative;
+    }
+
+    .edit-name-btn {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      padding: 5px 10px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    .edit-name-btn:hover {
+      background: #0056b3;
+    }
+
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+    }
+
+    .modal-content {
+      background: white;
+      margin: 15% auto;
+      padding: 30px;
+      border-radius: 10px;
+      width: 90%;
+      max-width: 400px;
+    }
+
+    .modal-header {
+      margin-bottom: 20px;
+    }
+
+    .modal-header h2 {
+      margin: 0;
+      color: #333;
+    }
+
+    .modal-input {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 15px;
+      border: 2px solid #ddd;
+      border-radius: 5px;
+      font-size: 14px;
+    }
+
+    .modal-buttons {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .modal-btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .modal-btn-primary {
+      background: #007bff;
+      color: white;
+    }
+
+    .modal-btn-secondary {
+      background: #6c757d;
+      color: white;
+    }
+
+    .no-devices {
+      text-align: center;
+      padding: 60px 20px;
+      color: #999;
+    }
+
+    .no-devices h2 {
+      margin-bottom: 10px;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <button class="logout-btn" onclick="logout()">Logout</button>
+
+  <div class="container">
+    <header class="header">
+      <h1>🌟 RosaIQ Air Quality Monitor</h1>
+      <p class="welcome-user" id="welcomeText">Loading...</p>
+    </header>
+
+    <div class="dashboard">
+      <div class="summary">
+        <div class="summary-card">
+          <div class="summary-value" id="totalDevices">-</div>
+          <div class="summary-label">My Devices</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-value" id="activeDevices">-</div>
+          <div class="summary-label">Active Now</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-value" id="avgCO2">- ppm</div>
+          <div class="summary-label">Avg CO₂</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-value" id="avgPM25">- µg/m³</div>
+          <div class="summary-label">Avg PM2.5</div>
+        </div>
+      </div>
+
+      <div id="devicesContainer" class="devices-grid">
+        <!-- Devices will be loaded here -->
+      </div>
+
+      <div id="noDevices" class="no-devices" style="display: none;">
+        <h2>No Devices Assigned</h2>
+        <p>Please contact your administrator to assign devices to your account.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rename Modal -->
+  <div id="renameModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Rename Device</h2>
+      </div>
+      <input type="text" id="newDeviceName" class="modal-input" placeholder="Enter new device name">
+      <div class="modal-buttons">
+        <button class="modal-btn modal-btn-secondary" onclick="closeRenameModal()">Cancel</button>
+        <button class="modal-btn modal-btn-primary" onclick="saveDeviceName()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    let currentUser = null;
+    let currentEditDevice = null;
+
+    // Check authentication
+    async function checkAuth() {
+      try {
+        const response = await fetch('/api/auth/session', { credentials: 'include' });
+        const data = await response.json();
+        
+        if (!data.authenticated) {
+          window.location.href = '/login.html';
+          return;
+        }
+
+        currentUser = data.user;
+        document.getElementById('welcomeText').textContent = `Welcome, ${currentUser.username}!`;
+        
+        // Redirect admin to admin panel
+        if (currentUser.role === 'admin') {
+          window.location.href = '/admin/';
+        }
+        
+        loadDashboard();
+      } catch (error) {
+        console.error('Auth check failed:', error);
+        window.location.href = '/login.html';
+      }
+    }
+
+    async function logout() {
+      try {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          credentials: 'include'
+        });
+        window.location.href = '/login.html';
+      } catch (error) {
+        console.error('Logout failed:', error);
+      }
+    }
+
+    async function loadDashboard() {
+      try {
+        const [summaryRes, devicesRes] = await Promise.all([
+          fetch('/api/dashboard/summary', { credentials: 'include' }),
+          fetch('/api/devices', { credentials: 'include' })
+        ]);
+
+        const summary = await summaryRes.json();
+        const devices = await devicesRes.json();
+
+        // Update summary
+        document.getElementById('totalDevices').textContent = summary.totalDevices;
+        document.getElementById('activeDevices').textContent = summary.activeDevices;
+        document.getElementById('avgCO2').textContent = summary.averages.co2 + ' ppm';
+        document.getElementById('avgPM25').textContent = summary.averages.pm25 + ' µg/m³';
+
+        // Display devices
+        const container = document.getElementById('devicesContainer');
+        const noDevices = document.getElementById('noDevices');
+
+        if (devices.length === 0) {
+          container.style.display = 'none';
+          noDevices.style.display = 'block';
+        } else {
+          container.style.display = 'grid';
+          noDevices.style.display = 'none';
+          container.innerHTML = devices.map(device => createDeviceCard(device)).join('');
+        }
+      } catch (error) {
+        console.error('Failed to load dashboard:', error);
+      }
+    }
+
+    function createDeviceCard(device) {
+      const data = device.latestMeasurement || {};
+      const displayName = device.custom_name || device.serial_number;
+      
+      return `
+        <div class="device-card">
+          <button class="edit-name-btn" onclick="openRenameModal('${device.device_id}', '${displayName}')">
+            ✏️ Rename
+          </button>
+          <div class="device-header">
+            <h2>${displayName}</h2>
+            <span class="device-status ${isDeviceActive(device.last_seen) ? 'online' : 'offline'}">
+              ${isDeviceActive(device.last_seen) ? '● Online' : '● Offline'}
+            </span>
+          </div>
+          <div class="device-metrics">
+            <div class="metric">
+              <div class="metric-value">${data.rco2 || '-'} <span>ppm</span></div>
+              <div class="metric-label">CO₂</div>
+            </div>
+            <div class="metric">
+              <div class="metric-value">${data.pm02 || '-'} <span>µg/m³</span></div>
+              <div class="metric-label">PM2.5</div>
+            </div>
+            <div class="metric">
+              <div class="metric-value">${data.atmp || '-'} <span>°C</span></div>
+              <div class="metric-label">Temperature</div>
+            </div>
+            <div class="metric">
+              <div class="metric-value">${data.rhum || '-'} <span>%</span></div>
+              <div class="metric-label">Humidity</div>
+            </div>
+          </div>
+          <div class="device-footer">
+            <small>Last updated: ${new Date(device.last_seen).toLocaleString()}</small>
+          </div>
+        </div>
+      `;
+    }
+
+    function isDeviceActive(lastSeen) {
+      const diff = Date.now() - new Date(lastSeen).getTime();
+      return diff < 10 * 60 * 1000; // Active if seen in last 10 minutes
+    }
+
+    function openRenameModal(deviceId, currentName) {
+      currentEditDevice = deviceId;
+      document.getElementById('newDeviceName').value = currentName;
+      document.getElementById('renameModal').style.display = 'block';
+    }
+
+    function closeRenameModal() {
+      document.getElementById('renameModal').style.display = 'none';
+      currentEditDevice = null;
+    }
+
+    async function saveDeviceName() {
+      const newName = document.getElementById('newDeviceName').value.trim();
+      
+      if (!newName) {
+        alert('Please enter a device name');
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/devices/${currentEditDevice}/name`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+          body: JSON.stringify({ customName: newName })
+        });
+
+        if (response.ok) {
+          closeRenameModal();
+          loadDashboard(); // Reload to show new name
+        } else {
+          const error = await response.json();
+          alert('Failed to rename device: ' + error.error);
+        }
+      } catch (error) {
+        console.error('Rename failed:', error);
+        alert('Failed to rename device');
+      }
+    }
+
+    // Close modal when clicking outside
+    window.onclick = function(event) {
+      const modal = document.getElementById('renameModal');
+      if (event.target === modal) {
+        closeRenameModal();
+      }
+    }
+
+    // Initialize
+    checkAuth();
+    
+    // Auto-refresh every 30 seconds
+    setInterval(loadDashboard, 30000);
+  </script>
+</body>
+</html>

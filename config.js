@@ -11,6 +11,11 @@ module.exports = {
     host: process.env.HOST || '0.0.0.0',
   },
 
+  // Session configuration
+  session: {
+    secret: process.env.SESSION_SECRET || 'rosaiq-secret-key-change-in-production-' + Math.random().toString(36),
+  },
+
   // Database configuration
   database: {
     // For Render: use persistent disk path
