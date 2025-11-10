@@ -163,23 +163,52 @@
                                 <label for="deviceLocation">Location</label>
                                 <input type="text" id="deviceLocation" class="form-control">
                             </div>
+                            
+                            <h3 style="margin-top: 20px; margin-bottom: 15px; color: #333;">LED Settings</h3>
+                            
                             <div class="form-group">
-                                <label for="ledMode">LED Mode</label>
-                                <select id="ledMode" class="form-control">
-                                    <option value="off">Off</option>
+                                <label for="ledBarMode">LED Bar Mode</label>
+                                <select id="ledBarMode" class="form-control">
                                     <option value="co2">Show CO₂</option>
                                     <option value="pm">Show PM</option>
+                                    <option value="off">Off</option>
                                 </select>
                             </div>
                             <div class="form-group">
-                                <label for="displayMode">Display Mode</label>
-                                <select id="displayMode" class="form-control">
-                                    <option value="default">Default</option>
-                                    <option value="pm">PM Only</option>
-                                    <option value="co2">CO₂ Only</option>
+                                <label for="ledBarBrightness">LED Bar Brightness (%)</label>
+                                <input type="number" id="ledBarBrightness" class="form-control" min="0" max="100" value="100">
+                            </div>
+                            
+                            <h3 style="margin-top: 20px; margin-bottom: 15px; color: #333;">Display Settings</h3>
+                            
+                            <div class="form-group">
+                                <label for="displayBrightness">Display Brightness (%)</label>
+                                <input type="number" id="displayBrightness" class="form-control" min="0" max="100" value="100">
+                            </div>
+                            <div class="form-group">
+                                <label for="temperatureUnit">Temperature Unit</label>
+                                <select id="temperatureUnit" class="form-control">
+                                    <option value="c">Celsius (°C)</option>
+                                    <option value="f">Fahrenheit (°F)</option>
                                 </select>
                             </div>
-                            <button class="btn btn-primary" onclick="saveDeviceConfig()">Save Configuration</button>
+                            
+                            <h3 style="margin-top: 20px; margin-bottom: 15px; color: #333;">Sensor Settings</h3>
+                            
+                            <div class="form-group">
+                                <label for="abcDays">CO₂ ABC Days (Automatic Baseline Calibration)</label>
+                                <input type="number" id="abcDays" class="form-control" min="0" max="200" value="8">
+                                <small style="color: #666;">Set to 0 to disable. Recommended: 8 days</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="pmStandard">PM Standard</label>
+                                <select id="pmStandard" class="form-control">
+                                    <option value="ugm3">µg/m³ (International)</option>
+                                    <option value="us-aqi">US AQI</option>
+                                </select>
+                            </div>
+                            
+                            <button class="btn btn-primary" onclick="saveDeviceConfig()" style="margin-top: 20px; width: 100%;">Save Configuration</button>
                         </div>
                     </div>
 
@@ -534,12 +563,22 @@
         // Load device charts
         async function loadDeviceCharts(deviceId) {
             try {
-                const response = await fetch(`/api/devices/${deviceId}/history?hours=24`, { credentials: 'include' });
-                const history = await response.json();
+                const response = await fetch(`/api/devices/${deviceId}/measurements?limit=50`, { credentials: 'include' });
+                const measurements = await response.json();
 
-                if (history.length === 0) return;
+                if (measurements.length === 0) {
+                    document.querySelectorAll('.chart-container').forEach(container => {
+                        container.innerHTML = '<div class="loading">No historical data available yet</div>';
+                    });
+                    return;
+                }
 
-                const labels = history.map(h => new Date(h.timestamp).toLocaleTimeString());
+                // Reverse to show oldest first
+                measurements.reverse();
+                const labels = measurements.map(m => {
+                    const date = new Date(m.timestamp);
+                    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                });
                 
                 // CO2 Chart
                 const co2Ctx = document.getElementById('co2Chart').getContext('2d');
@@ -550,17 +589,28 @@
                         labels: labels,
                         datasets: [{
                             label: 'CO₂ (ppm)',
-                            data: history.map(h => h.rco2),
-                            borderColor: 'rgb(75, 192, 192)',
-                            tension: 0.1
+                            data: measurements.map(m => m.rco2),
+                            borderColor: 'rgb(37, 99, 235)',
+                            backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                            tension: 0.4,
+                            fill: true
                         }]
                     },
                     options: {
                         responsive: true,
+                        maintainAspectRatio: true,
                         plugins: {
                             title: {
                                 display: true,
-                                text: 'CO₂ Levels (24 Hours)'
+                                text: 'CO₂ Levels (ppm)'
+                            },
+                            legend: {
+                                display: true
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: false
                             }
                         }
                     }
@@ -575,17 +625,28 @@
                         labels: labels,
                         datasets: [{
                             label: 'PM2.5 (µg/m³)',
-                            data: history.map(h => h.pm02),
-                            borderColor: 'rgb(255, 99, 132)',
-                            tension: 0.1
+                            data: measurements.map(m => m.pm02),
+                            borderColor: 'rgb(245, 158, 11)',
+                            backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                            tension: 0.4,
+                            fill: true
                         }]
                     },
                     options: {
                         responsive: true,
+                        maintainAspectRatio: true,
                         plugins: {
                             title: {
                                 display: true,
-                                text: 'PM2.5 Levels (24 Hours)'
+                                text: 'PM2.5 Levels (µg/m³)'
+                            },
+                            legend: {
+                                display: true
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true
                             }
                         }
                     }
@@ -598,19 +659,60 @@
                     type: 'line',
                     data: {
                         labels: labels,
-                        datasets: [{
-                            label: 'Temperature (°C)',
-                            data: history.map(h => h.atmp),
-                            borderColor: 'rgb(255, 159, 64)',
-                            tension: 0.1
-                        }]
+                        datasets: [
+                            {
+                                label: 'Temperature (°C)',
+                                data: measurements.map(m => m.atmp),
+                                borderColor: 'rgb(239, 68, 68)',
+                                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                                tension: 0.4,
+                                fill: true,
+                                yAxisID: 'y'
+                            },
+                            {
+                                label: 'Humidity (%)',
+                                data: measurements.map(m => m.rhum),
+                                borderColor: 'rgb(16, 185, 129)',
+                                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                tension: 0.4,
+                                fill: true,
+                                yAxisID: 'y1'
+                            }
+                        ]
                     },
                     options: {
                         responsive: true,
+                        maintainAspectRatio: true,
                         plugins: {
                             title: {
                                 display: true,
-                                text: 'Temperature (24 Hours)'
+                                text: 'Temperature & Humidity'
+                            },
+                            legend: {
+                                display: true
+                            }
+                        },
+                        scales: {
+                            y: {
+                                type: 'linear',
+                                display: true,
+                                position: 'left',
+                                title: {
+                                    display: true,
+                                    text: 'Temperature (°C)'
+                                }
+                            },
+                            y1: {
+                                type: 'linear',
+                                display: true,
+                                position: 'right',
+                                title: {
+                                    display: true,
+                                    text: 'Humidity (%)'
+                                },
+                                grid: {
+                                    drawOnChartArea: false
+                                }
                             }
                         }
                     }
@@ -628,8 +730,12 @@
 
                 document.getElementById('deviceName').value = device.custom_name || device.device_id;
                 document.getElementById('deviceLocation').value = config.location || '';
-                document.getElementById('ledMode').value = config.ledMode || 'co2';
-                document.getElementById('displayMode').value = config.displayMode || 'default';
+                document.getElementById('ledBarMode').value = config.led_bar_mode || 'co2';
+                document.getElementById('ledBarBrightness').value = config.led_bar_brightness || 100;
+                document.getElementById('displayBrightness').value = config.display_brightness || 100;
+                document.getElementById('temperatureUnit').value = config.temperature_unit || 'c';
+                document.getElementById('abcDays').value = config.abc_days || 8;
+                document.getElementById('pmStandard').value = config.pm_standard || 'ugm3';
             } catch (error) {
                 console.error('Error loading config:', error);
             }
@@ -643,8 +749,12 @@
                 const config = {
                     customName: document.getElementById('deviceName').value,
                     location: document.getElementById('deviceLocation').value,
-                    ledMode: document.getElementById('ledMode').value,
-                    displayMode: document.getElementById('displayMode').value
+                    ledBarMode: document.getElementById('ledBarMode').value,
+                    ledBarBrightness: parseInt(document.getElementById('ledBarBrightness').value),
+                    displayBrightness: parseInt(document.getElementById('displayBrightness').value),
+                    temperatureUnit: document.getElementById('temperatureUnit').value,
+                    abcDays: parseInt(document.getElementById('abcDays').value),
+                    pmStandard: document.getElementById('pmStandard').value
                 };
 
                 // Save custom name
@@ -682,7 +792,7 @@
                     <strong>Serial Number:</strong> ${device.serial_number || 'N/A'}
                 </div>
                 <div class="info-item">
-                    <strong>Model:</strong> ${device.model || 'AirGradient'}
+                    <strong>Model:</strong> ${device.model || 'RosaIQ'}
                 </div>
                 <div class="info-item">
                     <strong>Firmware:</strong> ${device.firmware_version || 'Unknown'}
