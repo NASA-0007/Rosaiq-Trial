@@ -79,8 +79,7 @@ app.use(session({
   }
 }));
 
-// Serve static files with auth protection
-app.use('/admin', requireAdmin, express.static(path.join(__dirname, 'public/admin')));
+// Serve static files (no auth on static files - auth happens in JS)
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Request logging middleware
@@ -203,6 +202,61 @@ app.post('/api/auth/register', requireAdmin, (req, res) => {
 });
 
 /**
+ * POST /api/auth/signup
+ * Self-registration for new users (creates regular user account)
+ */
+app.post('/api/auth/signup', (req, res) => {
+  const { username, password, email } = req.body;
+
+  try {
+    // Validate input
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password are required' });
+    }
+
+    if (username.length < 3) {
+      return res.status(400).json({ error: 'Username must be at least 3 characters' });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    // Check if user exists
+    const existing = database.getUserByUsername(username);
+    if (existing) {
+      return res.status(400).json({ error: 'Username already exists' });
+    }
+
+    // Hash password
+    const passwordHash = bcrypt.hashSync(password, 10);
+
+    // Create user with 'user' role (never admin via self-signup)
+    const result = database.createUser(username, passwordHash, email, 'user');
+
+    console.log(`✓ New user registered via self-signup: ${username}`);
+
+    // Auto-login after signup
+    req.session.userId = result.lastInsertRowid;
+    req.session.username = username;
+    req.session.role = 'user';
+
+    res.json({
+      success: true,
+      user: {
+        id: result.lastInsertRowid,
+        username: username,
+        role: 'user',
+        email: email
+      }
+    });
+  } catch (error) {
+    console.error('Signup error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * GET /api/users (Admin only)
  * Get all users
  */
@@ -259,6 +313,49 @@ app.post('/api/devices/:deviceId/unassign', requireAdmin, (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Error unassigning device:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/devices/claim
+ * Claim an unassigned device using serial number (any authenticated user)
+ */
+app.post('/api/devices/claim', requireAuth, (req, res) => {
+  try {
+    const { serialNumber } = req.body;
+
+    if (!serialNumber) {
+      return res.status(400).json({ error: 'Serial number is required' });
+    }
+
+    // Find device by serial number
+    const device = database.getDeviceBySerial(serialNumber);
+
+    if (!device) {
+      return res.status(404).json({ error: 'Device not found. Make sure the device has connected to the server at least once.' });
+    }
+
+    // Check if already assigned
+    if (device.user_id) {
+      return res.status(400).json({ error: 'Device is already assigned to another user' });
+    }
+
+    // Assign to current user
+    database.assignDeviceToUser(device.device_id, req.session.userId);
+
+    console.log(`✓ Device ${serialNumber} claimed by user ${req.session.username}`);
+
+    res.json({
+      success: true,
+      message: 'Device claimed successfully',
+      device: {
+        device_id: device.device_id,
+        serial_number: device.serial_number
+      }
+    });
+  } catch (error) {
+    console.error('Error claiming device:', error);
     res.status(500).json({ error: error.message });
   }
 });

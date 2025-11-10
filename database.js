@@ -218,11 +218,19 @@ class RosaIQDatabase {
   }
 
   /**
-   * Get device by ID
+   * Get device by device_id
    */
   getDevice(deviceId) {
     const stmt = this.db.prepare('SELECT * FROM devices WHERE device_id = ?');
     return stmt.get(deviceId);
+  }
+
+  /**
+   * Get device by serial number
+   */
+  getDeviceBySerial(serialNumber) {
+    const stmt = this.db.prepare('SELECT * FROM devices WHERE serial_number = ?');
+    return stmt.get(serialNumber);
   }
 
   /**

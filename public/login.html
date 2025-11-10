@@ -118,6 +118,23 @@
       opacity: 0.6;
       pointer-events: none;
     }
+
+    .toggle-link {
+      color: #667eea;
+      font-weight: 600;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    .toggle-link:hover {
+      text-decoration: underline;
+    }
+
+    .divider {
+      margin-top: 20px;
+      padding-top: 20px;
+      border-top: 1px solid #eee;
+    }
   </style>
 </head>
 <body>
@@ -129,7 +146,8 @@
 
     <div id="errorMessage" class="error-message"></div>
 
-    <form id="loginForm">
+    <!-- Login Form -->
+    <form id="loginForm" style="display: block;">
       <div class="form-group">
         <label for="username">Username</label>
         <input type="text" id="username" name="username" required autofocus>
@@ -142,13 +160,62 @@
 
       <button type="submit" class="btn">Login</button>
     </form>
+
+    <!-- Signup Form -->
+    <form id="signupForm" style="display: none;">
+      <div class="form-group">
+        <label for="signupUsername">Username *</label>
+        <input type="text" id="signupUsername" name="signupUsername" required minlength="3" placeholder="At least 3 characters">
+      </div>
+
+      <div class="form-group">
+        <label for="signupPassword">Password *</label>
+        <input type="password" id="signupPassword" name="signupPassword" required minlength="6" placeholder="At least 6 characters">
+      </div>
+
+      <div class="form-group">
+        <label for="signupEmail">Email (optional)</label>
+        <input type="email" id="signupEmail" name="signupEmail" placeholder="your@email.com">
+      </div>
+
+      <button type="submit" class="btn">Create Account</button>
+    </form>
+
+    <p class="info-text" id="toggleText">
+      Don't have an account? <a class="toggle-link" onclick="toggleForm()">Sign up</a>
+    </p>
+
+    <p class="info-text divider">
+      Default admin credentials:<br>
+      Username: <strong>admin</strong> | Password: <strong>admin123</strong>
+    </p>
   </div>
 
   <script>
-    const form = document.getElementById('loginForm');
+    const loginForm = document.getElementById('loginForm');
+    const signupForm = document.getElementById('signupForm');
     const errorDiv = document.getElementById('errorMessage');
+    const toggleText = document.getElementById('toggleText');
+    let isSignupMode = false;
 
-    form.addEventListener('submit', async (e) => {
+    function toggleForm() {
+      isSignupMode = !isSignupMode;
+      
+      if (isSignupMode) {
+        loginForm.style.display = 'none';
+        signupForm.style.display = 'block';
+        toggleText.innerHTML = 'Already have an account? <a class="toggle-link" onclick="toggleForm()">Login</a>';
+      } else {
+        loginForm.style.display = 'block';
+        signupForm.style.display = 'none';
+        toggleText.innerHTML = 'Don\'t have an account? <a class="toggle-link" onclick="toggleForm()">Sign up</a>';
+      }
+      
+      errorDiv.classList.remove('show');
+    }
+
+    // Login handler
+    loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       
       const username = document.getElementById('username').value;
@@ -156,7 +223,7 @@
 
       // Hide previous error
       errorDiv.classList.remove('show');
-      form.classList.add('loading');
+      loginForm.classList.add('loading');
 
       try {
         const response = await fetch('/api/auth/login', {
@@ -185,7 +252,46 @@
         errorDiv.textContent = 'Network error. Please try again.';
         errorDiv.classList.add('show');
       } finally {
-        form.classList.remove('loading');
+        loginForm.classList.remove('loading');
+      }
+    });
+
+    // Signup handler
+    signupForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const username = document.getElementById('signupUsername').value;
+      const password = document.getElementById('signupPassword').value;
+      const email = document.getElementById('signupEmail').value;
+
+      // Hide previous error
+      errorDiv.classList.remove('show');
+      signupForm.classList.add('loading');
+
+      try {
+        const response = await fetch('/api/auth/signup', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ username, password, email }),
+          credentials: 'include'
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          // Auto-logged in after signup, redirect to dashboard
+          window.location.href = '/dashboard.html';
+        } else {
+          errorDiv.textContent = data.error || 'Signup failed';
+          errorDiv.classList.add('show');
+        }
+      } catch (error) {
+        errorDiv.textContent = 'Network error. Please try again.';
+        errorDiv.classList.add('show');
+      } finally {
+        signupForm.classList.remove('loading');
       }
     });
 

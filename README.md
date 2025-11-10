@@ -7,6 +7,19 @@
 ![License](https://img.shields.io/badge/License-MIT-blue)
 ![Render Compatible](https://img.shields.io/badge/Render-Compatible-blue?logo=render)
 
+---
+
+## 🎉 What's New in v2.1
+
+### Self-Service Features
+- ✨ **User Self-Registration** - No admin approval needed! Users can sign up instantly
+- 📱 **Device Claiming** - Users claim devices by entering serial numbers
+- 🚀 **Zero Admin Overhead** - Fully automated user and device onboarding
+
+[Read the complete guide →](SELF_SERVICE_GUIDE.md) | [See all updates →](LATEST_UPDATES.md)
+
+---
+
 ## Features
 
 ✅ **Complete Device Management**

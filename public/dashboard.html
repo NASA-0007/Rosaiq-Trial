@@ -132,6 +132,7 @@
     <header class="header">
       <h1>🌟 RosaIQ Air Quality Monitor</h1>
       <p class="welcome-user" id="welcomeText">Loading...</p>
+      <button class="btn btn-primary" onclick="openClaimModal()" style="margin-top: 10px;">+ Claim Device</button>
     </header>
 
     <div class="dashboard">
@@ -175,6 +176,23 @@
       <div class="modal-buttons">
         <button class="modal-btn modal-btn-secondary" onclick="closeRenameModal()">Cancel</button>
         <button class="modal-btn modal-btn-primary" onclick="saveDeviceName()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Claim Device Modal -->
+  <div id="claimModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Claim Your Device</h2>
+        <p style="color: #666; font-size: 14px; margin-top: 10px;">
+          Enter the serial number from your AirGradient device to add it to your dashboard.
+        </p>
+      </div>
+      <input type="text" id="deviceSerialNumber" class="modal-input" placeholder="Enter device serial number (e.g., 12345abc)">
+      <div class="modal-buttons">
+        <button class="modal-btn modal-btn-secondary" onclick="closeClaimModal()">Cancel</button>
+        <button class="modal-btn modal-btn-primary" onclick="claimDevice()">Claim Device</button>
       </div>
     </div>
   </div>
@@ -342,11 +360,59 @@
       }
     }
 
+    // Claim Device Functions
+    function openClaimModal() {
+      document.getElementById('deviceSerialNumber').value = '';
+      document.getElementById('claimModal').style.display = 'block';
+    }
+
+    function closeClaimModal() {
+      document.getElementById('claimModal').style.display = 'none';
+    }
+
+    async function claimDevice() {
+      const serialNumber = document.getElementById('deviceSerialNumber').value.trim();
+      
+      if (!serialNumber) {
+        alert('Please enter a device serial number');
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/devices/claim', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+          body: JSON.stringify({ serialNumber })
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+          alert(`Device "${serialNumber}" successfully claimed!`);
+          closeClaimModal();
+          loadDashboard(); // Reload to show new device
+        } else {
+          alert('Failed to claim device: ' + result.error);
+        }
+      } catch (error) {
+        console.error('Claim failed:', error);
+        alert('Failed to claim device. Please try again.');
+      }
+    }
+
     // Close modal when clicking outside
     window.onclick = function(event) {
-      const modal = document.getElementById('renameModal');
-      if (event.target === modal) {
+      const renameModal = document.getElementById('renameModal');
+      const claimModal = document.getElementById('claimModal');
+      
+      if (event.target === renameModal) {
         closeRenameModal();
+      }
+      if (event.target === claimModal) {
+        closeClaimModal();
       }
     }
 
