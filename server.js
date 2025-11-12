@@ -487,11 +487,37 @@ app.put('/config', (req, res) => {
 // ============================================================================
 
 /**
+ * Compare semantic versions (e.g., "3.3.9" vs "3.4.0")
+ * Returns: 1 if v1 > v2, -1 if v1 < v2, 0 if equal
+ */
+function compareVersions(v1, v2) {
+  // Handle special cases
+  if (!v1 || !v2) return 0;
+  if (v1 === v2) return 0;
+  
+  // Remove any suffixes like "-snap", "-dev", "-beta"
+  const clean1 = v1.split('-')[0];
+  const clean2 = v2.split('-')[0];
+  
+  const parts1 = clean1.split('.').map(n => parseInt(n) || 0);
+  const parts2 = clean2.split('.').map(n => parseInt(n) || 0);
+  
+  for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+    const num1 = parts1[i] || 0;
+    const num2 = parts2[i] || 0;
+    if (num1 > num2) return 1;
+    if (num1 < num2) return -1;
+  }
+  
+  return 0;
+}
+
+/**
  * GET /sensors/:deviceId/generic/os/firmware.bin?current_firmware=version
- * OTA firmware update endpoint (AirGradient compatible)
+ * OTA firmware update endpoint (Custom RosaIQ server)
  * 
  * Responses:
- * - 304: Device already on latest version (with explanation text)
+ * - 304: Device already on latest version (no update needed)
  * - 400: Unknown firmware version (e.g. "snapshot" from local builds)
  * - 200: Update available, returns binary data
  * - 404: No firmware available on server
@@ -501,131 +527,114 @@ app.get('/sensors/:deviceId/generic/os/firmware.bin', (req, res) => {
     const { deviceId } = req.params;
     const currentVersion = req.query.current_firmware;
 
-    console.log(`[OTA] ========================================`);
-    console.log(`[OTA] Request URL: ${req.url}`);
-    console.log(`[OTA] Request Path: ${req.path}`);
+    console.log(`\n[OTA] ========================================`);
+    console.log(`[OTA] Firmware Update Check`);
     console.log(`[OTA] Device ID: ${deviceId}`);
     console.log(`[OTA] Current Version: ${currentVersion}`);
-    console.log(`[OTA] Protocol: ${req.protocol}`);
-    console.log(`[OTA] Headers: ${JSON.stringify(req.headers)}`);
-    console.log(`[OTA] ========================================`);
+    console.log(`[OTA] Request URL: ${req.url}`);
+    console.log(`[OTA] ========================================\n`);
 
-    // Get latest firmware
+    // Get latest firmware from database
     const latestFirmware = database.getLatestFirmware();
 
     if (!latestFirmware) {
-      console.log('[OTA] No firmware available on server');
+      console.log('[OTA] ✗ No firmware available on server');
       return res.status(404).send('No firmware available on server');
     }
 
-    console.log(`[OTA] Latest firmware: ${latestFirmware.version}`);
+    console.log(`[OTA] Latest available: ${latestFirmware.version}`);
+    console.log(`[OTA] File path: ${latestFirmware.file_path}`);
 
-    // Check if device reports an unknown/local build version (e.g., "snapshot")
-    if (currentVersion && (currentVersion === 'snapshot' || currentVersion.includes('dev') || currentVersion.includes('local'))) {
-      console.log(`[OTA] Device ${deviceId} running unknown/local firmware version: ${currentVersion}`);
-      return res.status(400).send(''); // Empty payload for unknown versions
+    // Check if device reports an unknown/local build version
+    if (currentVersion && (currentVersion.includes('snap') || currentVersion.includes('dev') || currentVersion.includes('local'))) {
+      console.log(`[OTA] ⚠ Device ${deviceId} running local/development build: ${currentVersion}`);
+      console.log(`[OTA] → Skipping update (local builds should be manually managed)`);
+      return res.status(400).send('Local/development firmware detected - manual update required');
     }
 
-    // Check if device is already on latest version
-    if (currentVersion && currentVersion === latestFirmware.version) {
-      console.log(`[OTA] Device ${deviceId} already on latest version ${currentVersion}`);
-      return res.status(304).send(`Device is already running the latest firmware version ${currentVersion}`);
+    // Compare versions
+    const comparison = compareVersions(latestFirmware.version, currentVersion);
+    
+    if (comparison <= 0) {
+      // Latest firmware is same or older than device version
+      console.log(`[OTA] ✓ Device ${deviceId} already on latest or newer version`);
+      console.log(`[OTA] → Device: ${currentVersion}, Server: ${latestFirmware.version}`);
+      return res.status(304).send(`Device is already running version ${currentVersion}`);
     }
 
-    // Send firmware file
+    // Update is available!
+    console.log(`[OTA] ✓ Update available for ${deviceId}`);
+    console.log(`[OTA] → ${currentVersion} → ${latestFirmware.version}`);
+
+    // Verify firmware file exists
     const firmwarePath = path.join(__dirname, latestFirmware.file_path);
     
-    console.log(`[OTA] Firmware path: ${firmwarePath}`);
-    console.log(`[OTA] File exists: ${fs.existsSync(firmwarePath)}`);
-    
     if (!fs.existsSync(firmwarePath)) {
-      console.error(`[OTA ERROR] Firmware file not found: ${firmwarePath}`);
+      console.error(`[OTA] ✗ ERROR: Firmware file not found: ${firmwarePath}`);
       return res.status(404).send('Firmware file not found on server');
     }
 
-    console.log(`[OTA] ✓ Sending firmware ${latestFirmware.version} to ${deviceId} (from ${currentVersion || 'unknown'})`);
-    
-    // Log the update event
-    database.logEvent(deviceId, 'ota_update', {
+    // Get file size for logging
+    const fileStats = fs.statSync(firmwarePath);
+    console.log(`[OTA] → File size: ${(fileStats.size / 1024).toFixed(2)} KB`);
+    console.log(`[OTA] → Sending firmware to device...`);
+
+    // Log the update event in database
+    database.logEvent(deviceId, 'ota_update_started', {
       from_version: currentVersion || 'unknown',
-      to_version: latestFirmware.version
+      to_version: latestFirmware.version,
+      file_size: fileStats.size
     });
 
-    // Send binary with filename as "firmware.bin" (AirGradient default)
+    // Set proper headers for binary download
     res.setHeader('Content-Type', 'application/octet-stream');
     res.setHeader('Content-Disposition', 'attachment; filename="firmware.bin"');
-    res.sendFile(firmwarePath);
+    res.setHeader('Content-Length', fileStats.size);
+    
+    // Send the firmware file
+    res.sendFile(firmwarePath, (err) => {
+      if (err) {
+        console.error(`[OTA] ✗ Error sending firmware:`, err.message);
+        database.logEvent(deviceId, 'ota_update_failed', {
+          error: err.message,
+          from_version: currentVersion,
+          to_version: latestFirmware.version
+        });
+      } else {
+        console.log(`[OTA] ✓ Firmware sent successfully to ${deviceId}`);
+        database.logEvent(deviceId, 'ota_update_sent', {
+          from_version: currentVersion,
+          to_version: latestFirmware.version
+        });
+      }
+    });
+
   } catch (error) {
-    console.error('[OTA ERROR]', error);
+    console.error('[OTA] ✗ ERROR:', error);
     res.status(500).send('Internal server error');
   }
 });
 
-// Alternative route to catch any variations in the OTA URL format
+
+// Alternative route to catch variations in URL format (wildcard device ID)
 app.get('/sensors/*/generic/os/firmware.bin', (req, res) => {
-  console.log(`[OTA FALLBACK] Caught request: ${req.url}`);
-  console.log(`[OTA FALLBACK] Original URL: ${req.originalUrl}`);
-  console.log(`[OTA FALLBACK] Path: ${req.path}`);
+  console.log(`[OTA WILDCARD] Caught request: ${req.url}`);
   
   // Extract device ID from path
   const pathParts = req.path.split('/');
   const deviceId = pathParts[2]; // /sensors/DEVICEID/generic/os/firmware.bin
   
-  console.log(`[OTA FALLBACK] Extracted device ID: ${deviceId}`);
+  console.log(`[OTA WILDCARD] Extracted device ID: ${deviceId}`);
+  console.log(`[OTA WILDCARD] Redirecting to main handler...`);
   
-  // Forward to main handler by setting params
+  // Set params and forward to main handler
   req.params.deviceId = deviceId;
   
-  // Call the main OTA handler logic
-  try {
-    const currentVersion = req.query.current_firmware;
-
-    console.log(`[OTA FALLBACK] Processing for ${deviceId}, version: ${currentVersion}`);
-
-    // Get latest firmware
-    const latestFirmware = database.getLatestFirmware();
-
-    if (!latestFirmware) {
-      console.log('[OTA FALLBACK] No firmware available on server');
-      return res.status(404).send('No firmware available on server');
-    }
-
-    console.log(`[OTA FALLBACK] Latest firmware: ${latestFirmware.version}`);
-
-    // Check if device reports an unknown/local build version
-    if (currentVersion && (currentVersion === 'snapshot' || currentVersion.includes('dev') || currentVersion.includes('local'))) {
-      console.log(`[OTA FALLBACK] Unknown/local firmware version: ${currentVersion}`);
-      return res.status(400).send('');
-    }
-
-    // Check if device is already on latest version
-    if (currentVersion && currentVersion === latestFirmware.version) {
-      console.log(`[OTA FALLBACK] Device already on latest version ${currentVersion}`);
-      return res.status(304).send(`Device is already running the latest firmware version ${currentVersion}`);
-    }
-
-    // Send firmware file
-    const firmwarePath = path.join(__dirname, latestFirmware.file_path);
-    
-    if (!fs.existsSync(firmwarePath)) {
-      console.error(`[OTA FALLBACK ERROR] Firmware file not found: ${firmwarePath}`);
-      return res.status(404).send('Firmware file not found on server');
-    }
-
-    console.log(`[OTA FALLBACK] ✓ Sending firmware ${latestFirmware.version} to ${deviceId}`);
-    
-    database.logEvent(deviceId, 'ota_update', {
-      from_version: currentVersion || 'unknown',
-      to_version: latestFirmware.version
-    });
-
-    res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Disposition', 'attachment; filename="firmware.bin"');
-    res.sendFile(firmwarePath);
-  } catch (error) {
-    console.error('[OTA FALLBACK ERROR]', error);
-    res.status(500).send('Internal server error');
-  }
+  // Re-route to the main handler by calling next middleware
+  // This is simpler than duplicating all the logic
+  return app._router.handle(req, res, () => {
+    res.status(500).send('Routing error');
+  });
 });
 
 /**
