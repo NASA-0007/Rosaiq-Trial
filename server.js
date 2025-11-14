@@ -552,8 +552,9 @@ app.get('/sensors/:deviceId/generic/os/firmware.bin', (req, res) => {
       return res.status(400).send('Local/development firmware detected - manual update required');
     }
 
-    // Compare versions
-    const comparison = compareVersions(latestFirmware.version, currentVersion);
+    // Compare versions - remove suffix from current version for comparison
+    const currentClean = currentVersion ? currentVersion.split('-')[0] : '';
+    const comparison = compareVersions(latestFirmware.version, currentClean);
     
     if (comparison <= 0) {
       // Latest firmware is same or older than device version
@@ -615,26 +616,71 @@ app.get('/sensors/:deviceId/generic/os/firmware.bin', (req, res) => {
   }
 });
 
-
-// Alternative route to catch variations in URL format (wildcard device ID)
+// Alternative route to catch any variations in the OTA URL format
 app.get('/sensors/*/generic/os/firmware.bin', (req, res) => {
-  console.log(`[OTA WILDCARD] Caught request: ${req.url}`);
+  console.log(`[OTA FALLBACK] Caught request: ${req.url}`);
+  console.log(`[OTA FALLBACK] Original URL: ${req.originalUrl}`);
+  console.log(`[OTA FALLBACK] Path: ${req.path}`);
   
   // Extract device ID from path
   const pathParts = req.path.split('/');
   const deviceId = pathParts[2]; // /sensors/DEVICEID/generic/os/firmware.bin
   
-  console.log(`[OTA WILDCARD] Extracted device ID: ${deviceId}`);
-  console.log(`[OTA WILDCARD] Redirecting to main handler...`);
+  console.log(`[OTA FALLBACK] Extracted device ID: ${deviceId}`);
   
-  // Set params and forward to main handler
+  // Forward to main handler by setting params
   req.params.deviceId = deviceId;
   
-  // Re-route to the main handler by calling next middleware
-  // This is simpler than duplicating all the logic
-  return app._router.handle(req, res, () => {
-    res.status(500).send('Routing error');
-  });
+  // Call the main OTA handler logic
+  try {
+    const currentVersion = req.query.current_firmware;
+
+    console.log(`[OTA FALLBACK] Processing for ${deviceId}, version: ${currentVersion}`);
+
+    // Get latest firmware
+    const latestFirmware = database.getLatestFirmware();
+
+    if (!latestFirmware) {
+      console.log('[OTA FALLBACK] No firmware available on server');
+      return res.status(404).send('No firmware available on server');
+    }
+
+    console.log(`[OTA FALLBACK] Latest firmware: ${latestFirmware.version}`);
+
+    // Check if device reports an unknown/local build version
+    if (currentVersion && (currentVersion === 'snapshot' || currentVersion.includes('dev') || currentVersion.includes('local'))) {
+      console.log(`[OTA FALLBACK] Unknown/local firmware version: ${currentVersion}`);
+      return res.status(400).send('');
+    }
+
+    // Check if device is already on latest version
+    if (currentVersion && currentVersion === latestFirmware.version) {
+      console.log(`[OTA FALLBACK] Device already on latest version ${currentVersion}`);
+      return res.status(304).send(`Device is already running the latest firmware version ${currentVersion}`);
+    }
+
+    // Send firmware file
+    const firmwarePath = path.join(__dirname, latestFirmware.file_path);
+    
+    if (!fs.existsSync(firmwarePath)) {
+      console.error(`[OTA FALLBACK ERROR] Firmware file not found: ${firmwarePath}`);
+      return res.status(404).send('Firmware file not found on server');
+    }
+
+    console.log(`[OTA FALLBACK] ✓ Sending firmware ${latestFirmware.version} to ${deviceId}`);
+    
+    database.logEvent(deviceId, 'ota_update', {
+      from_version: currentVersion || 'unknown',
+      to_version: latestFirmware.version
+    });
+
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', 'attachment; filename="firmware.bin"');
+    res.sendFile(firmwarePath);
+  } catch (error) {
+    console.error('[OTA FALLBACK ERROR]', error);
+    res.status(500).send('Internal server error');
+  }
 });
 
 /**
